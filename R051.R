@@ -64,6 +64,11 @@
 				summary(FACT)
 				names(FACT)
 			
+				# import and inspect party membership eppisodes
+				MEME = read.csv("PCC/MEME.csv", header = TRUE, sep = ";")
+				summary(MEME)
+				names(MEME)
+			
 			# not core at the moment
 			
 				# import and inspect election list entries
@@ -83,10 +88,7 @@
 				
 				
 				
-				# import and inspect party membership eppisodes
-				# MEME = read.csv("PCC/MEME.csv", header = TRUE, sep = ";")
-				# summary(MEME)
-				# names(MEME)
+				
 				
 				# import and inspect election level information
 				# ELEC = read.csv("PCC/ELEC.csv", header = TRUE, sep = ";")
@@ -120,8 +122,6 @@
 			RESE$res_entry_start_posoxctformat <- as.POSIXct(as.character(RESE$res_entry_start),format=c("%d%b%Y"))
 			RESE$res_entry_end_posoxctformat <- as.POSIXct(as.character(RESE$res_entry_end),format=c("%d%b%Y"))
 			
-
-			
 	# PARL
 		names(PARL)
 			
@@ -145,6 +145,35 @@
 		# check the result
 			table(is.na(PARL$leg_period_start_posoxctformat)) # should return all FALSE
 			table(is.na(PARL$leg_period_end_posoxctformat)) # should return all FALSE
+			
+	# MEME
+	
+		# 1) strip left- and right-censor markers
+		MEME$memep_startdate <- gsub("[[rcen]]","", MEME$memep_startdate, fixed = TRUE)
+		MEME$memep_startdate <- gsub("[[lcen]]","", MEME$memep_startdate, fixed = TRUE)
+		MEME$memep_enddate   <- gsub("[[rcen]]","", MEME$memep_enddate,   fixed = TRUE)
+		MEME$memep_enddate   <- gsub("[[lcen]]","", MEME$memep_enddate,   fixed = TRUE)
+
+		# 2) convert to POSIXct (day-month-abbr-year like “23mar2017”)
+		MEME$memep_start_posixct <- as.POSIXct(as.character(MEME$memep_startdate),
+											   format = "%d%b%Y")
+		MEME$memep_end_posixct   <- as.POSIXct(as.character(MEME$memep_enddate),
+											   format = "%d%b%Y")
+		# 3) (optional) keep NL only
+		MEME$country_abb <- substr(MEME$pers_id, 1, 2)
+		
+		if ("country_abb" %in% names(MEME)) {
+		  MEME <- MEME[MEME$country_abb == "NL", ]
+		}
+
+		# 4) quick sanity check
+		table(is.na(MEME$memep_start_posixct))  # should be all FALSE
+		table(is.na(MEME$memep_end_posixct))    # should be all FALSE
+		
+		# inspect the problematic cases (all much earlier on it seems).
+		MEME[ which(is.na(MEME$memep_start_posixct)), ]
+		MEME[ which(is.na(MEME$memep_end_posixct)), ]
+		
 	
 ## SET ACTIVE FILTERS
 	
@@ -205,17 +234,19 @@
 
 	# todo: lets all add the election dates as vertical gridlines here!
 
-library(ggplot2)
+	# daterange to use
+	daterangestart <- "2005-01-01"
+	daterangeend <- "2010-12-31"
 
 # 1) compute your break dates
 month_breaks <- seq(
-  from = as.POSIXct("2000-01-01"),
-  to   = as.POSIXct("2005-12-01"),
+  from = as.POSIXct(daterangestart),
+  to   = as.POSIXct(daterangeend),
   by   = "1 month"
 )
 year_breaks <- seq(
-  from = as.POSIXct("2000-01-01"),
-  to   = as.POSIXct("2005-01-01"),
+  from = as.POSIXct(daterangestart),
+  to   = as.POSIXct(daterangeend),
   by   = "1 year"
 )
 
@@ -235,10 +266,16 @@ ggplot(daily_counts, aes(x = day, y = pol_count)) +
     size       = 0.8,            # thicker
     colour     = "blue"
   ) +
+  # and a line at 150
+   geom_hline(
+    yintercept = 150, 
+    size       = 0.25,            # thin
+    colour     = "green"
+  ) +
 
   # Month labels on bottom:
   scale_x_datetime(
-    limits = c(as.POSIXct("2000-01-01"), as.POSIXct("2005-12-31")),
+    limits = c(as.POSIXct(daterangestart), as.POSIXct(daterangeend)),
     breaks = month_breaks,
     labels = function(x) substr(month.abb[as.POSIXlt(x)$mon + 1], 1, 1),
     # secondary axis for the years:
@@ -251,11 +288,12 @@ ggplot(daily_counts, aes(x = day, y = pol_count)) +
 
   scale_y_continuous(
     limits = c(125, 160),
-    breaks = seq(125, 160, by = 1)
+    breaks = seq(125, 160, by = 1),
+	minor_breaks = NULL
   ) +
 
   labs(
-    title = "Daily Number of Politicians in Parliament (2000–2005)",
+    title = "Daily Number of Politicians in Parliament (2005–2010)",
     x     = NULL,
     y     = "Number of Politicians"
   ) +
@@ -272,8 +310,8 @@ ggplot(daily_counts, aes(x = day, y = pol_count)) +
 # inspect suspisous mutations
 
 	# 1) define your window
-	start_date <- as.POSIXct("2003-06-01", tz = "UTC")
-	end_date   <- as.POSIXct("2003-07-01", tz = "UTC")
+	start_date <- as.POSIXct("2008-04-01", tz = "UTC")
+	end_date   <- as.POSIXct("2008-04-30", tz = "UTC")
 
 	# 2) grab the IDs
 	ids_in_window <- RESEBU[
@@ -285,7 +323,6 @@ ggplot(daily_counts, aes(x = day, y = pol_count)) +
 	ids_in_window
 	
 # lets start getting FACT info in, that should gives us more to hold on to.
-
 
 	# FACT
 	
@@ -300,8 +337,101 @@ ggplot(daily_counts, aes(x = day, y = pol_count)) +
 		tail(FACT)
 	
 		# do all the parliament_ids sum up to the right amounts
+			aggregate(seats ~ parliament_id,
+			  data = FACT,
+			  FUN  = sum,
+			  na.rm = TRUE)
+	
+		# do the most dominant start and enddates match with PARL
 		
-		aggregate(seats ~ parliament_id,
-          data = FACT,
-          FUN  = sum,
-          na.rm = TRUE) 
+			# the start dates
+			table(FACT$faction_start)
+			
+			names(table(FACT$faction_start)) %in% names(table(PARL$leg_period_start))
+			
+			# the end dates
+			table(FACT$faction_end)
+	
+	# now - although I know there are issues still! - lets merge MEME in, so we can compare totals!
+	
+	nrow(RESEBU)
+	TEMP <- sqldf("
+		  SELECT DISTINCT *
+		  FROM ( 
+					SELECT RESEBU.*,
+					 MEME.party_id
+			  FROM   RESEBU
+			  LEFT JOIN MEME
+					 ON RESEBU.pers_id       = MEME.pers_id
+					AND RESEBU.res_entry_start_posoxctformat BETWEEN MEME.memep_start_posixct
+										   AND MEME.memep_end_posixct
+				)
+		")
+	nrow(TEMP)	# so we can see some duplicated where created (still, also after SELECT DISTINCT)
+	
+		# lets see for what cohorts?
+		
+		is.data.table(TEMP)
+		setDT(TEMP)
+		
+		# ─────────────────────────────────────────────
+		# 1.  Add a decade indicator based on the start date
+		# ─────────────────────────────────────────────
+		TEMP[, decade := floor(year(res_entry_start_posoxctformat) / 10) * 10]
+		# optional: a nicer label, e.g. "1900s", "1910s", …
+		TEMP[, decade_label := paste0(decade, "s")]
+		
+		table(TEMP$decade_label)
+		
+		head(TEMP)
+		
+		## one-liner, data.table
+			dup_rows_by_decade <- TEMP[ ,
+			  .(extra_rows = .N - uniqueN(res_entry_id)),
+			  by = decade_label
+			][order(decade_label)]
+
+			dup_rows_by_decade
+			
+		# inspect the problematic cases (this is overseeable and should just be fixored manually)
+			## duplicated IDs within each decade
+			dup_ids <- TEMP[ ,
+			  .N,                                 # count rows per ID
+			  by = .(decade_label, res_entry_id)
+			][N > 1]                              # keep only those with duplicates
+
+			dup_ids[order(decade_label, -N)]
+			
+			
+	# for example, lets troubleshoot the two one person we are low after the Nov 2006 elections
+	
+	#------------------------------------------------------------
+	# Return the pers_id’s of everyone in parliament on a given day
+	#------------------------------------------------------------
+	whowashere <- function(localdate,
+						   data   = RESEBU,
+						   tz     = "UTC") {
+
+	  # Accept either a character, Date, or POSIXct
+	  if (inherits(localdate, "POSIXct")) {
+		date_ct <- localdate
+	  } else {
+		date_ct <- as.POSIXct(localdate, tz = tz)
+	  }
+
+	  if (is.na(date_ct))
+		stop("Could not convert 'localdate' to POSIXct. Check the format.")
+
+	  # Fast interval filter and unique IDs
+	  data[
+		date_ct >= res_entry_start_posoxctformat &
+		date_ct <= res_entry_end_posoxctformat,
+		unique(pers_id)
+	  ]
+	}
+	
+	
+	test <- whowashere("2007-12-13")
+	length(test)
+	
+	
