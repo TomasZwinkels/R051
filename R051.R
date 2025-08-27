@@ -6,6 +6,11 @@
 		Sys.setenv(LANG = "EN")
 		Sys.setlocale("LC_TIME", "English") # key, without this conversion to POSIXct does not work
 		Sys.getlocale(category = "LC_ALL")
+		
+		# so for the next time, you need to think well about the kind of R programming you wish to do in general, see evernote.
+		
+		# I think I am going to converte everything here to just use R base dates.. 
+		# Don't quite know why I ended up with POSIXct in the first place as a habbit at some point?
 
 		setwd("F:/PolCa/Analysis/R/ProjectR051_NewDaybyDay")
 		getwd()
@@ -168,8 +173,8 @@
 		
 		# transform to R date
 			# transform
-			RESE$res_entry_start_posoxctformat <- as.POSIXct(as.character(RESE$res_entry_start),format=c("%d%b%Y"))
-			RESE$res_entry_end_posoxctformat <- as.POSIXct(as.character(RESE$res_entry_end),format=c("%d%b%Y"))
+			RESE$res_entry_start_dateformat <- as.Date(as.character(RESE$res_entry_start),format=c("%d%b%Y"))
+			RESE$res_entry_end_dateformat <- as.Date(as.character(RESE$res_entry_end),format=c("%d%b%Y"))
 			
 	# PARL
 		names(PARL)
@@ -183,8 +188,8 @@
 		
 		# transform to R date and check if all the dates make sense
 			# transform
-			PARL$leg_period_start_posoxctformat <- as.POSIXct(as.character(PARL$leg_period_start),format=c("%d%b%Y"))
-			PARL$leg_period_end_posoxctformat <- as.POSIXct(as.character(PARL$leg_period_end),format=c("%d%b%Y"))
+			PARL$leg_period_start_dateformat <- as.Date(as.character(PARL$leg_period_start),format=c("%d%b%Y"))
+			PARL$leg_period_end_dateformat <- as.Date(as.character(PARL$leg_period_end),format=c("%d%b%Y"))
 		
 		# focus on NL
 			nrow(PARL)
@@ -192,8 +197,8 @@
 			nrow(PARL)	
 		
 		# check the result
-			table(is.na(PARL$leg_period_start_posoxctformat)) # should return all FALSE
-			table(is.na(PARL$leg_period_end_posoxctformat)) # should return all FALSE
+			table(is.na(PARL$leg_period_start_dateformat)) # should return all FALSE
+			table(is.na(PARL$leg_period_end_dateformat)) # should return all FALSE
 			
 	# MEME
 	
@@ -203,10 +208,10 @@
 		MEME$memep_enddate   <- gsub("[[rcen]]","", MEME$memep_enddate,   fixed = TRUE)
 		MEME$memep_enddate   <- gsub("[[lcen]]","", MEME$memep_enddate,   fixed = TRUE)
 
-		# 2) convert to POSIXct (day-month-abbr-year like “23mar2017”)
-		MEME$memep_start_posixct <- as.POSIXct(as.character(MEME$memep_startdate),
+		# 2) convert to R date format (day-month-abbr-year like “23mar2017”)
+		MEME$memep_start_dateformat <- as.Date(as.character(MEME$memep_startdate),
 											   format = "%d%b%Y")
-		MEME$memep_end_posixct   <- as.POSIXct(as.character(MEME$memep_enddate),
+		MEME$memep_end_dateformat   <- as.Date(as.character(MEME$memep_enddate),
 											   format = "%d%b%Y")
 		# 3) (OPTIONAL) keep NL only
 		MEME$country_abb <- substr(MEME$pers_id, 1, 2)
@@ -216,12 +221,12 @@
 		}
 
 		# 4) quick sanity check
-		table(is.na(MEME$memep_start_posixct))  # should be all FALSE
-		table(is.na(MEME$memep_end_posixct))    # should be all FALSE
+		table(is.na(MEME$memep_start_dateformat))  # should be all FALSE
+		table(is.na(MEME$memep_end_dateformat))    # should be all FALSE
 		
 		# inspect the problematic cases (all much earlier on it seems).
-		MEME[ which(is.na(MEME$memep_start_posixct)), ]
-		MEME[ which(is.na(MEME$memep_end_posixct)), ]
+		MEME[ which(is.na(MEME$memep_start_dateformat)), ]
+		MEME[ which(is.na(MEME$memep_end_dateformat)), ]
 		
 ## SET ACTIVE FILTERS
 	
@@ -231,13 +236,8 @@
 	nrow(RESE)		
 	
 	# check the result in terms of date cleaning
-		table(is.na(RESE$res_entry_start_posoxctformat)) # should return all FALSE
-		table(is.na(RESE$res_entry_end_posoxctformat)) # should return all FALSE
-
-### because I would like to be able to print the election dates as well.
-
-	PARL$election_date_asdate <- as.Date(as.character(PARL$election_date),format=c("%d%b%Y"))
-	summary(PARL$election_date_asdate)
+		table(is.na(RESE$res_entry_start_dateformat)) # should return all FALSE
+		table(is.na(RESE$res_entry_end_dateformat)) # should return all FALSE
 	
 ### merge in info from POLI
 
@@ -273,12 +273,13 @@
 
 	## focus on the relevant variables
 	RESEBU <- RESEBU %>% 
-				select(res_entry_id, pers_id, gender, res_entry_start_posoxctformat, res_entry_end_posoxctformat)
+				select(res_entry_id, pers_id, gender, res_entry_start_dateformat, res_entry_end_dateformat)
 				
 	head(RESEBU)
 	
 	RESEBU_MALE <- RESEBU[which(RESEBU$gender == "m"),]
 	nrow(RESEBU_MALE)
+	head(RESEBU_MALE)
 	
 	RESEBU_FEMALE <- RESEBU[which(RESEBU$gender == "f"),]
 	nrow(RESEBU_FEMALE)
@@ -286,43 +287,47 @@
 	RESEBU_NB <- RESEBU[which(RESEBU$gender == "nb"),]
 	nrow(RESEBU_NB)
 
-# Assume RESEBU has already been created and converted to a data.table.
+# From what follows to work the RESEBU tables need to be data.table.
 		# For example, if not already done:
 		setDT(RESEBU)
+		setDT(RESEBU_MALE)
+		setDT(RESEBU_FEMALE)
+		setDT(RESEBU_NB)
 
 		# Create a sequence of all days from the earliest start date to the latest end date
 		
-			from_dt <- as.POSIXct(trunc(min(RESEBU$res_entry_start_posoxctformat, na.rm=TRUE), "days"), tz = "UTC")
-			to_dt   <- as.POSIXct(trunc(max(RESEBU$res_entry_end_posoxctformat,   na.rm=TRUE), "days"), tz = "UTC")
-
-			all_days <- seq(from = from_dt, to = to_dt, by = "day")
-			days_dt  <- data.table(day = as.Date(all_days))  # drop time part
+			all_days <- seq(
+			  from = min(RESEBU$res_entry_start_date, na.rm = TRUE),
+			  to   = max(RESEBU$res_entry_end_date,   na.rm = TRUE),
+			  by   = "day"
+			)
+			days_dt <- data.table(thisday = all_days)
 
 		
 		head(days_dt)
 		tail(days_dt)
 
-		# For each day, count unique politicians (based on pers_id) 
-		# whose interval covers that day.
+		# For each thisday, count unique politicians (based on pers_id) 
+		# whose interval covers that thisday.
 		DAILY_COUNTS_ALL <- days_dt[, .(
-		  pol_total = RESEBU[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
+		  pol_total = RESEBU[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
 							 uniqueN(pers_id)]
-		), by = day]
+		), by = thisday]
 
 		DAILY_COUNTS_MALE <- days_dt[, .(
-		  pol_total = RESEBU_MALE[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
+		  pol_total = RESEBU_MALE[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
 							 uniqueN(pers_id)]
-		), by = day]
+		), by = thisday]
 
 		DAILY_COUNTS_FEMALE <- days_dt[, .(
-		  pol_total = RESEBU_FEMALE[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
+		  pol_total = RESEBU_FEMALE[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
 							 uniqueN(pers_id)]
-		), by = day]
+		), by = thisday]
 		
 		DAILY_COUNTS_NB <- days_dt[, .(
-		  pol_total = RESEBU_NB[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
+		  pol_total = RESEBU_NB[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
 							 uniqueN(pers_id)]
-		), by = day]
+		), by = thisday]
 
 		# merge all these gender specific dataframes together into one overarching one
 
@@ -332,8 +337,8 @@
 				data.table::setnames(DAILY_COUNTS_FEMALE, "pol_total", "pol_f")
 				data.table::setnames(DAILY_COUNTS_NB,     "pol_total", "pol_nb")
 
-			# Merge all by day (outer join to keep all days)
-				DAILY_COUNTS <- Reduce(function(x, y) merge(x, y, by = "day", all = TRUE),
+			# Merge all by thisday (outer join to keep all days)
+				DAILY_COUNTS <- Reduce(function(x, y) merge(x, y, by = "thisday", all = TRUE),
 				  list(DAILY_COUNTS_ALL, DAILY_COUNTS_MALE, DAILY_COUNTS_FEMALE, DAILY_COUNTS_NB)
 				)
 
@@ -345,16 +350,12 @@
 			# (Optional) quick consistency check: do subgroups add up?
 					table( (DAILY_COUNTS$pol_m + DAILY_COUNTS$pol_f + DAILY_COUNTS$pol_nb) == DAILY_COUNTS$pol_all )
 
-			# make sure we are still using POSIXct dates
-			DAILY_COUNTS[, day := as.POSIXct(day)]
-			
 			# Inspect 
 			head(DAILY_COUNTS)
 			tail(DAILY_COUNTS)
 
-
 # overall
-	ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
+	ggplot(DAILY_COUNTS, aes(x = thisday, y = pol_all)) +
 	  geom_line() +
 	  labs(
 		title = "Daily Number of Politicians in Parliament",
@@ -377,17 +378,17 @@
 
 # 1) compute your break dates
 month_breaks <- seq(
-  from = as.POSIXct(daterangestart),
-  to   = as.POSIXct(daterangeend),
+  from = as.Date(daterangestart),
+  to   = as.Date(daterangeend),
   by   = "1 month"
 )
 year_breaks <- seq(
-  from = as.POSIXct(daterangestart),
-  to   = as.POSIXct(daterangeend),
+  from = as.Date(daterangestart),
+  to   = as.Date(daterangeend),
   by   = "1 year"
 )
 
-ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
+ggplot(DAILY_COUNTS, aes(x = thisday, y = pol_all)) +
   # your main line
   geom_line() +
 
@@ -412,9 +413,9 @@ ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
 
   # Month labels on bottom:
   scale_x_datetime(
-    limits = c(as.POSIXct(daterangestart), as.POSIXct(daterangeend)),
+    limits = c(as.Date(daterangestart), as.Date(daterangeend)),
     breaks = month_breaks,
-    labels = function(x) substr(month.abb[as.POSIXlt(x)$mon + 1], 1, 1),
+    labels = function(x) substr(month.abb[as.Date(x)$mon + 1], 1, 1),
     # secondary axis for the years:
     sec.axis = dup_axis(
       breaks = year_breaks,
@@ -447,13 +448,13 @@ ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
 # inspect suspisous mutations
 
 	# 1) define your window
-	start_date <- as.POSIXct("2008-04-01", tz = "UTC")
-	end_date   <- as.POSIXct("2008-04-30", tz = "UTC")
+	start_date <- as.Date("2008-04-01", tz = "UTC")
+	end_date   <- as.Date("2008-04-30", tz = "UTC")
 
 	# 2) grab the IDs
 	ids_in_window <- RESEBU[
-	  (res_entry_start_posoxctformat >= start_date & res_entry_start_posoxctformat <= end_date)
-	  | (res_entry_end_posoxctformat   >= start_date & res_entry_end_posoxctformat   <= end_date),
+	  (res_entry_start_dateformat >= start_date & res_entry_start_dateformat <= end_date)
+	  | (res_entry_end_dateformat   >= start_date & res_entry_end_dateformat   <= end_date),
 	  res_entry_id
 	]
 
@@ -462,8 +463,8 @@ ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
 # and for the same purpose, a list of all the people that where there on a specific day.
 
 	unique(RESE$pers_id[
-	  RESE$res_entry_start_posoxctformat <= as.POSIXct("2013-01-01") &
-	  RESE$res_entry_end_posoxctformat   >= as.POSIXct("2013-01-01")
+	  RESE$res_entry_start_dateformat <= as.Date("2013-01-01") &
+	  RESE$res_entry_end_dateformat   >= as.Date("2013-01-01")
 	])
 
 	
@@ -498,6 +499,7 @@ ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
 			table(FACT$faction_end)
 	
 	# now - although I know there are issues still! - lets merge MEME in, so we can compare totals!
+	# TODO! This need to be replaced with a tdata table version at some point!
 	
 	nrow(RESEBU)
 	TEMP <- sqldf("
@@ -508,8 +510,8 @@ ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
 			  FROM   RESEBU
 			  LEFT JOIN MEME
 					 ON RESEBU.pers_id       = MEME.pers_id
-					AND RESEBU.res_entry_start_posoxctformat BETWEEN MEME.memep_start_posixct
-										   AND MEME.memep_end_posixct
+					AND RESEBU.res_entry_start_dateformat BETWEEN MEME.memep_start_dateformat
+										   AND MEME.memep_end_dateformat
 				)
 		")
 	nrow(TEMP)	# so we can see some duplicated where created (still, also after SELECT DISTINCT)
@@ -522,7 +524,7 @@ ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
 		# ─────────────────────────────────────────────
 		# 1.  Add a decade indicator based on the start date
 		# ─────────────────────────────────────────────
-		TEMP[, decade := floor(year(res_entry_start_posoxctformat) / 10) * 10]
+		TEMP[, decade := floor(year(res_entry_start_dateformat) / 10) * 10]
 		# optional: a nicer label, e.g. "1900s", "1910s", …
 		TEMP[, decade_label := paste0(decade, "s")]
 		
@@ -579,7 +581,92 @@ ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
 	test <- whowashere("2007-12-13")
 	length(test)
 	
-###
+#####
 
+# working on getting day by day graph that shows the percentage of women.
 
-###
+#####
+
+# very simple
+
+	DAILY_COUNTS$proportion_female <- (DAILY_COUNTS$pol_f/(DAILY_COUNTS$pol_all))
+	tail(DAILY_COUNTS)
+	
+# and a graph
+
+	# some vectors with ranges e.t.c. that can be used in all the graphs, done here centrally to force consistency between the graphs
+		yname <- c("% Women")
+		ybreaks <- c(0,0.1,0.2,0.3,0.4,0.5)
+		ylabels <- c(0,10,20,30,40,50)
+		yrange <- c(0.05,0.43)
+		xrange <- c(as.Date("1955-01-01",origin="1950-01-01"),as.Date("2024-12-31",origin="1970-01-01"))
+	
+	# and the graph, simply the percentage of women
+	
+		  # over the whole observation window
+		  ggplot(NULL) +
+		  geom_line(data=DAILY_COUNTS, aes(x=thisday, y=proportion_female),size=1,color="black")
+		  
+		  # for a specific date range
+		 
+			  ggplot(NULL) +
+			  geom_line(data=DAILY_COUNTS, aes(x=thisday, y=proportion_female),size=1,color="black") +
+			  scale_y_continuous(name=yname,breaks=ybreaks,labels=ylabels,limits=yrange) +
+			  scale_x_date(name="Percentage of women in Tweede Kamer over time",limits=xrange)
+		  
+	# now, lets also plot the first day of the parliamentary term in ('to spot election induced fluctuations').
+
+		# Convert to data.table IN PLACE
+		setDT(PARL)
+		setDT(DAILY_COUNTS)
+
+		# RANGE JOIN: attach the parliament period to each calendar day (start <= day <= end).
+		
+		# please note that this is NOT correct yet.
+		
+				head(PARL)
+				head(DAILY_COUNTS)
+		
+				TEMP <- PARL[
+				  DAILY_COUNTS,
+				  on = .(leg_period_start_dateformat <= thisday,
+						 leg_period_end_dateformat   >= thisday),
+				  .(thisday = i.thisday,
+					pol_all = i.pol_all, 
+					pol_m = i.pol_m, 
+					pol_f = i.pol_f, 
+					pol_nb = i.pol_nb,
+					proportion_female = i.proportion_female,
+					parliament_id = x.parliament_id, 
+					leg_period_start_dateformat = x.leg_period_start_dateformat)
+				]
+
+				head(TEMP)
+				tail(TEMP)
+			
+				
+		# QUICK SANITY CHECKS
+				nrow(DAILY_COUNTS)
+				nrow(TEMP)
+				head(DAILY_COUNTS)
+				head(TEMP)
+				tail(TEMP)
+				
+		  
+		  +
+	#	  geom_point(data=IPU_NL, aes(x=rformateddate, y=propwomen),shape=7,size=2.5) +
+		   +
+		  geom_vline(aes(xintercept=UNI_NL$election_date_asdate), linetype=1, colour="gray",size=1) +
+		  
+	#	  geom_point(data=UNI_NL, aes(x=before, y=gender_before),shape=15,size=3,colour="darkgreen") +
+	#	  geom_point(data=UNI_NL, aes(x=after, y=gender_after),shape=16,size=3,colour="darkgreen") +
+		  
+		  geom_step(data=UNI_NL, aes(x=election_date_asdate, y=running_average_with_atelection_fluctu_only),size=1.2,color="darkgreen",linetype=1) +
+	#	  geom_text(data=UNI_NL, aes(x=election_date_asdate, y=running_average_with_atelection_fluctu_only, label=womenextraandless_formatted), vjust=0, hjust=1, angle=45, size=6, color="black",fill="gray") +
+	#	  geom_vline(aes(xintercept=UNI_NL$before), linetype=5, colour="red",size=1) +
+	#	  geom_vline(aes(xintercept=UNI_NL$after), linetype=5, colour="red",size=1) +
+		  theme_grey(base_size = 15) +
+		  theme_pubclean(base_size = 20) +
+		  theme(axis.text.x = element_text(angle = 65, hjust = 1)) +
+		  scale_color_manual(scale_color_manual(values = c("day-by-day" = "black", "Cummulative gender trend with election fluctuations only" = "purple")),name="Trends")
+	
