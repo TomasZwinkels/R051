@@ -2,12 +2,6 @@
 #################################### SETUP ########################################### test
 ######################################################################################
 
-	# INSTRUCTIONS
-		# typically, one would run this script 'top to bottom' and fix issues higher up 
-			# before going on to the subsequent lines of codes (e.g. fix fully overlapping
-			# membership episodes before going into checking partially overlapping ones)
-
-
 	# change the language and date formatting to English if it is not already
 		Sys.setenv(LANG = "EN")
 		Sys.setlocale("LC_TIME", "English") # key, without this conversion to POSIXct does not work
@@ -23,6 +17,10 @@
 		# install.packages("dplyr")
 		# install.packages("writexl")
 		# install.packages("testthat")
+		# install.packages("ggplot2")
+		# install.packages("remotes") 
+		# remotes::install_version("ggplot2", version = "3.5.1", repos = "https://cloud.r-project.org") # there was an issue with 3.5.2 so I am downgrading here for now
+
 
 	# packages
 		library(sqldf)
@@ -33,6 +31,10 @@
 		library(writexl)
 		library(openxlsx)
 		library(testthat)
+		library(ggplot2)
+		
+		packageVersion("ggplot2")
+
 		
 	# Load some custom functions
 		# source("R047_functions.R")
@@ -49,10 +51,59 @@
 				summary(POLI)
 				names(POLI)
 				
+					# are all pers_ids unique? TODO: at some point make this a check in R047
+					length(unique(POLI$pers_id)) == nrow(POLI)
+						
+					
 				# import and inspect all the resume entries
 				RESE = read.csv("PCC/RESE.csv", header = TRUE, sep = ";")
 				summary(RESE)
 				names(RESE)	
+				
+					# data integrity checks on RESE, parliamentary eppisodes specifically.
+						
+						# loading and checking the related functions to check data integrity
+						pathtocheckerfunctions <- "F:/PolCa/Analysis/R/ProjectR047_PCCIntegrity/"
+						source(paste0(pathtocheckerfunctions,"R047_RESE_functions.R"))
+						test_file(paste0(pathtocheckerfunctions,"R047_RESE_unittests.R"))
+					
+						# do all the pers_id occur?
+						
+							# focus on NL
+							nrow(RESE)
+							RESE <- RESE[which(RESE$country_abb == "NL"),]
+							nrow(RESE)
+							
+							check_RESE_persid_in_POLI(RESE,POLI) # should return TRUE
+						
+						# are all the res_entry_ids unique?
+							check_RESE_resentryid_unique(RESE) # should return TRUE
+						
+						# overlapping dates (should all return FALSE)
+						
+							# focus on parliamentary membership
+							nrow(RESE)
+							RESE <- RESE[which(RESE$political_function == "NT_LE-LH_T3_NA_01"),]
+							nrow(RESE)
+						
+							# any NA dates?
+							check_anyNAinRESEdates(preprocess_RESEdates(RESE))
+							
+							# overlap at all?
+							check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
+							check_RESE_anynear_fulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
+					
+						# break the script of any of these are not like they should be
+						
+							if( check_RESE_persid_in_POLI(RESE,POLI) == FALSE||
+								check_RESE_resentryid_unique(RESE)==FALSE||
+								check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE))==TRUE||
+								check_RESE_anynear_fulloverlap(preprocess_RESEdates(RESE))==TRUE 
+							  )
+							{
+							RESE <- NULL
+							}
+							nrow(RESE)
 
 				# import and inspect parliamentary information
 				PARL = read.csv("PCC/PARL.csv", header = TRUE, sep = ";")
@@ -85,11 +136,7 @@
 				# ELLI = read.csv("PCC/ELLI.csv", header = TRUE, sep = ";")
 				# summary(ELLI)
 				# names(ELLI)
-				
-				
-				
-				
-				
+
 				# import and inspect election level information
 				# ELEC = read.csv("PCC/ELEC.csv", header = TRUE, sep = ";")
 				# summary(ELEC)
@@ -104,7 +151,7 @@
 				# QUOT = read.csv("PCC/QUOT.csv", header = TRUE, sep = ";")
 				# summary(QUOT)
 				# names(QUOT)
-		
+
 ## bunch of date cleaning e.t.c.
 
 	# RESE
@@ -117,7 +164,7 @@
 				RESE$res_entry_end <- gsub("[[rcen]]","",RESE$res_entry_end,fixed=TRUE)
 				RESE$res_entry_end <- gsub("[[lcen]]","",RESE$res_entry_end,fixed=TRUE)
 		
-		# transform to R date and check if all the dates make sense
+		# transform to R date
 			# transform
 			RESE$res_entry_start_posoxctformat <- as.POSIXct(as.character(RESE$res_entry_start),format=c("%d%b%Y"))
 			RESE$res_entry_end_posoxctformat <- as.POSIXct(as.character(RESE$res_entry_end),format=c("%d%b%Y"))
@@ -159,7 +206,7 @@
 											   format = "%d%b%Y")
 		MEME$memep_end_posixct   <- as.POSIXct(as.character(MEME$memep_enddate),
 											   format = "%d%b%Y")
-		# 3) (optional) keep NL only
+		# 3) (OPTIONAL) keep NL only
 		MEME$country_abb <- substr(MEME$pers_id, 1, 2)
 		
 		if ("country_abb" %in% names(MEME)) {
@@ -174,7 +221,6 @@
 		MEME[ which(is.na(MEME$memep_start_posixct)), ]
 		MEME[ which(is.na(MEME$memep_end_posixct)), ]
 		
-	
 ## SET ACTIVE FILTERS
 	
 	# parliamentary episodes in the Netherlands
@@ -186,12 +232,39 @@
 		table(is.na(RESE$res_entry_start_posoxctformat)) # should return all FALSE
 		table(is.na(RESE$res_entry_end_posoxctformat)) # should return all FALSE
 
+### because I would like to be able to print the election dates as well.
+
+	PARL$election_date_asdate <- as.Date(as.character(PARL$election_date),format=c("%d%b%Y"))
+	summary(PARL$election_date_asdate)
+	
+### merge in info from POLI
+
+	head(RESE)
+	head(POLI)
+
+	nrow(RESE)
+
+	RESEBU <- RESE %>%
+	  left_join(
+		POLI %>% select(pers_id, gender, birth_date),
+		by = "pers_id"
+	  )
+	  
+	nrow(RESEBU)
+	head(RESEBU)
+
+	# any NA on gender?
+	table(is.na(RESEBU$gender))
+
 ##### GET DAY-BY-DAY totals #####
 
+	# please note that everything that follows here is still part of the quality controls. 
+	# I've for example inspected temporary larger drops in the Netherlands and have found they are 
+	# due to ministers leaving and not being immediatly replaced.
 
 	## focus on the relevant variables
-	RESEBU <- RESE %>% 
-				select(res_entry_id, pers_id, res_entry_start_posoxctformat, res_entry_end_posoxctformat)
+	RESEBU <- RESEBU %>% 
+				select(res_entry_id, pers_id, gender, res_entry_start_posoxctformat, res_entry_end_posoxctformat)
 				
 	head(RESEBU)
 	
@@ -235,8 +308,12 @@
 	# todo: lets all add the election dates as vertical gridlines here!
 
 	# daterange to use
-	daterangestart <- "2005-01-01"
-	daterangeend <- "2010-12-31"
+	daterangestart <- "2010-01-01"
+	daterangeend <- "2020-12-31"
+	
+	# take the first 4 characters to get year (used in label, that is all)
+	startyear <- substr(daterangestart, 1, 4)
+	endyear   <- substr(daterangeend,   1, 4)
 
 # 1) compute your break dates
 month_breaks <- seq(
@@ -293,7 +370,7 @@ ggplot(daily_counts, aes(x = day, y = pol_count)) +
   ) +
 
   labs(
-    title = "Daily Number of Politicians in Parliament (2005–2010)",
+    title = paste0("Daily Number of Politicians in Parliament (",startyear,"–",endyear,")"),
     x     = NULL,
     y     = "Number of Politicians"
   ) +
@@ -321,6 +398,14 @@ ggplot(daily_counts, aes(x = day, y = pol_count)) +
 	]
 
 	ids_in_window
+	
+# and for the same purpose, a list of all the people that where there on a specific day.
+
+	unique(RESE$pers_id[
+	  RESE$res_entry_start_posoxctformat <= as.POSIXct("2013-01-01") &
+	  RESE$res_entry_end_posoxctformat   >= as.POSIXct("2013-01-01")
+	])
+
 	
 # lets start getting FACT info in, that should gives us more to hold on to.
 
