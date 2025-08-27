@@ -17,6 +17,7 @@
 		# install.packages("dplyr")
 		# install.packages("writexl")
 		# install.packages("testthat")
+		# install.packages("data.table")
 		# install.packages("ggplot2")
 		# install.packages("remotes") 
 		# remotes::install_version("ggplot2", version = "3.5.1", repos = "https://cloud.r-project.org") # there was an issue with 3.5.2 so I am downgrading here for now
@@ -31,6 +32,7 @@
 		library(writexl)
 		library(openxlsx)
 		library(testthat)
+		library(data.table)
 		library(ggplot2)
 		
 		packageVersion("ggplot2")
@@ -255,6 +257,13 @@
 
 	# any NA on gender?
 	table(is.na(RESEBU$gender))
+	
+	# all values correct?
+		table(RESEBU$gender)
+		# nb will need to be given their own category, but for indentifying as female, tf can be set to f, same for tm	
+		RESEBU$gender[which(RESEBU$gender == "tf")] <- "f"
+		RESEBU$gender[which(RESEBU$gender == "tm")] <- "m"
+		table(RESEBU$gender)
 
 ##### GET DAY-BY-DAY totals #####
 
@@ -268,33 +277,84 @@
 				
 	head(RESEBU)
 	
+	RESEBU_MALE <- RESEBU[which(RESEBU$gender == "m"),]
+	nrow(RESEBU_MALE)
+	
+	RESEBU_FEMALE <- RESEBU[which(RESEBU$gender == "f"),]
+	nrow(RESEBU_FEMALE)
+	
+	RESEBU_NB <- RESEBU[which(RESEBU$gender == "nb"),]
+	nrow(RESEBU_NB)
 
-	# Load required libraries
-		library(data.table)
-		library(ggplot2)
-
-		# Assume RESEBU has already been created and converted to a data.table.
+# Assume RESEBU has already been created and converted to a data.table.
 		# For example, if not already done:
 		setDT(RESEBU)
 
 		# Create a sequence of all days from the earliest start date to the latest end date
-		all_days <- seq(from = min(RESEBU$res_entry_start_posoxctformat, na.rm = TRUE),
-						to = max(RESEBU$res_entry_end_posoxctformat, na.rm = TRUE),
-						by = "day")
-		days_dt <- data.table(day = all_days)
+		
+			from_dt <- as.POSIXct(trunc(min(RESEBU$res_entry_start_posoxctformat, na.rm=TRUE), "days"), tz = "UTC")
+			to_dt   <- as.POSIXct(trunc(max(RESEBU$res_entry_end_posoxctformat,   na.rm=TRUE), "days"), tz = "UTC")
+
+			all_days <- seq(from = from_dt, to = to_dt, by = "day")
+			days_dt  <- data.table(day = as.Date(all_days))  # drop time part
+
+		
+		head(days_dt)
+		tail(days_dt)
 
 		# For each day, count unique politicians (based on pers_id) 
 		# whose interval covers that day.
-		daily_counts <- days_dt[, .(
-		  pol_count = RESEBU[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
+		DAILY_COUNTS_ALL <- days_dt[, .(
+		  pol_total = RESEBU[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
 							 uniqueN(pers_id)]
 		), by = day]
 
-		# Inspect the first few rows
-		head(daily_counts)
+		DAILY_COUNTS_MALE <- days_dt[, .(
+		  pol_total = RESEBU_MALE[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
+							 uniqueN(pers_id)]
+		), by = day]
+
+		DAILY_COUNTS_FEMALE <- days_dt[, .(
+		  pol_total = RESEBU_FEMALE[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
+							 uniqueN(pers_id)]
+		), by = day]
+		
+		DAILY_COUNTS_NB <- days_dt[, .(
+		  pol_total = RESEBU_NB[day >= res_entry_start_posoxctformat & day <= res_entry_end_posoxctformat,
+							 uniqueN(pers_id)]
+		), by = day]
+
+		# merge all these gender specific dataframes together into one overarching one
+
+			# Give distinct column names
+				data.table::setnames(DAILY_COUNTS_ALL,    "pol_total", "pol_all")
+				data.table::setnames(DAILY_COUNTS_MALE,   "pol_total", "pol_m")
+				data.table::setnames(DAILY_COUNTS_FEMALE, "pol_total", "pol_f")
+				data.table::setnames(DAILY_COUNTS_NB,     "pol_total", "pol_nb")
+
+			# Merge all by day (outer join to keep all days)
+				DAILY_COUNTS <- Reduce(function(x, y) merge(x, y, by = "day", all = TRUE),
+				  list(DAILY_COUNTS_ALL, DAILY_COUNTS_MALE, DAILY_COUNTS_FEMALE, DAILY_COUNTS_NB)
+				)
+
+			# Replace NAs with 0
+				for (col in c("pol_all","pol_m","pol_f","pol_nb")) {
+				  set(DAILY_COUNTS, which(is.na(DAILY_COUNTS[[col]])), col, 0L)
+				}
+
+			# (Optional) quick consistency check: do subgroups add up?
+					table( (DAILY_COUNTS$pol_m + DAILY_COUNTS$pol_f + DAILY_COUNTS$pol_nb) == DAILY_COUNTS$pol_all )
+
+			# make sure we are still using POSIXct dates
+			DAILY_COUNTS[, day := as.POSIXct(day)]
+			
+			# Inspect 
+			head(DAILY_COUNTS)
+			tail(DAILY_COUNTS)
+
 
 # overall
-	ggplot(daily_counts, aes(x = day, y = pol_count)) +
+	ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
 	  geom_line() +
 	  labs(
 		title = "Daily Number of Politicians in Parliament",
@@ -327,7 +387,7 @@ year_breaks <- seq(
   by   = "1 year"
 )
 
-ggplot(daily_counts, aes(x = day, y = pol_count)) +
+ggplot(DAILY_COUNTS, aes(x = day, y = pol_all)) +
   # your main line
   geom_line() +
 
@@ -519,4 +579,7 @@ ggplot(daily_counts, aes(x = day, y = pol_count)) +
 	test <- whowashere("2007-12-13")
 	length(test)
 	
-	
+###
+
+
+###
