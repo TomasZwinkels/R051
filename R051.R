@@ -823,69 +823,47 @@ ggplot(DAILY_COUNTS, aes(x = thisday, y = pol_all)) +
 		## 0) Assumes you already defined: DAILY_COUNTS, DELTA, BEFORE, AFTER,
 		##    xrange, yrange, ybreaks, ylabels, yname, parl_starts_win, labels_df/label_layer
 
-		# Solid grey verticals (closer to your old plot)
-		term_lines_layer <- geom_vline(
-		  data = data.frame(start = parl_starts_win),
-		  aes(xintercept = start),
-		  linewidth = 0.8, linetype = 1, color = "grey60",
-		  inherit.aes = FALSE
-		)
+	# dynamic legend labels
+	lab_before <- sprintf("Vóór (%d dagen)", n_days)
+	lab_after  <- sprintf("Na (%d dagen)",   n_days)
 
-		# Build plot with mapped colors/shapes so we get a legend
-		p_overlaid <-
-		  ggplot() +
-		  # daily line (black)
-		  geom_line(
-			data = DAILY_COUNTS,
-			aes(x = thisday, y = proportion_female, color = "Dagelijks (dag-voor-dag)"),
-			linewidth = 0.8
-		  ) +
-		  # running-average step (dark green) – divide by 100 to match 0–1 y-scale
-		  geom_step(
-			data = DELTA,
-			aes(x = term_start, y = running_average_with_atelection_fluctu_only / 100,
-				color = "Trend (alleen verkiezingssprongen)"),
-			linewidth = 1.2, linetype = 1
-		  ) +
-		  # before / after points (dark green)
-		  geom_point(
-			data = BEFORE,
-			aes(x = target_day, y = pct_women_before_election / 100, shape = paste0("Vóór (",n_days," dagen)")),
-			size = 2.8, color = "darkgreen", stroke = 0
-		  ) +
-		  geom_point(
-			data = AFTER,
-			aes(x = target_day, y = pct_women_after_election / 100, shape = paste0("Na (",n_days," dagen)")),
-			size = 2.8, color = "darkgreen", stroke = 0
-		  ) +
-		  # vertical lines + year labels
-		  term_lines_layer +
-		  label_layer +
-		  # axes & theme (keeps your existing ranges)
-		  scale_y_continuous(name = yname, breaks = ybreaks, labels = ylabels, limits = yrange) +
-		  scale_x_date(name = "Time & Dutch Election Cycles", limits = xrange) +
-		  # legend styling
-		  scale_color_manual(
-			values = c(
-			  "Dagelijks (dag-voor-dag)" = "black",
-			  "Trend (alleen verkiezingssprongen)" = "darkgreen"
-			),
-			name = "Trends"
-		  ) +
-		  scale_shape_manual(
-			values = c(paste0("Vóór (",n_days," dagen)") = 15, paste0("Na (",n_days," dagen)") = 16),
-			name = NULL
-		  ) +
-		  theme_minimal(base_size = 15) +
-		  theme(
-			plot.margin = margin(10, 30, 10, 10),
-			axis.text.x = element_text(angle = 65, hjust = 1),
-			legend.position = "top",
-			legend.box = "horizontal"  # makes the items go side by side
-		  )
+	p_overlaid <-
+	  ggplot() +
+	  geom_line(data = DAILY_COUNTS,
+				aes(x = thisday, y = proportion_female, color = "Dagelijks (dag-voor-dag)"),
+				linewidth = 0.8) +
+	  geom_step(data = DELTA,
+				aes(x = term_start, y = running_average_with_atelection_fluctu_only / 100,
+					color = "Trend (alleen verkiezingssprongen)"),
+				linewidth = 1.2) +
+	  geom_point(data = BEFORE,
+				 aes(x = target_day, y = pct_women_before_election / 100, shape = lab_before),
+				 size = 2.8, color = "darkgreen") +
+	  geom_point(data = AFTER,
+				 aes(x = target_day, y = pct_women_after_election / 100, shape = lab_after),
+				 size = 2.8, color = "darkgreen") +
+	  term_lines_layer + label_layer +
+	  scale_y_continuous(name = yname, breaks = ybreaks, labels = ylabels, limits = yrange) +
+	  scale_x_date(name = "Time & Dutch Election Cycles", limits = xrange) +
+	  scale_color_manual(values = c(
+		  "Dagelijks (dag-voor-dag)" = "black",
+		  "Trend (alleen verkiezingssprongen)" = "darkgreen"
+	  ), name = "Trends") +
+	  scale_shape_manual(
+		  values = setNames(c(15, 16), c(lab_before, lab_after)),  # <-- dynamic names
+		  name = NULL
+	  ) +
+	  theme_minimal(base_size = 15) +
+	  theme(
+		plot.margin = margin(10, 30, 10, 10),
+		axis.text.x = element_text(angle = 65, hjust = 1),
+		legend.position = "top",
+		legend.box = "horizontal"
+	  )
+p_overlaid
 
-		p_overlaid
-			
+
+	
 ## ofcuts!		
 		
 		
