@@ -588,6 +588,7 @@ ggplot(DAILY_COUNTS, aes(x = thisday, y = pol_all)) +
 #####
 
 # very simple
+	table(DAILY_COUNTS$pol_f)
 
 	DAILY_COUNTS$proportion_female <- (DAILY_COUNTS$pol_f/(DAILY_COUNTS$pol_all))
 	tail(DAILY_COUNTS)
@@ -598,8 +599,8 @@ ggplot(DAILY_COUNTS, aes(x = thisday, y = pol_all)) +
 		yname <- c("% Women")
 		ybreaks <- c(0,0.1,0.2,0.3,0.4,0.5)
 		ylabels <- c(0,10,20,30,40,50)
-		yrange <- c(0.05,0.43)
-		xrange <- c(as.Date("1955-01-01",origin="1950-01-01"),as.Date("2024-12-31",origin="1970-01-01"))
+		yrange <- c(-0.15,0.50)
+		xrange <- c(as.Date("1901-09-17",origin="1950-01-01"),as.Date("2024-12-31",origin="1970-01-01"))
 	
 	# and the graph, simply the percentage of women
 	
@@ -622,7 +623,8 @@ ggplot(DAILY_COUNTS, aes(x = thisday, y = pol_all)) +
 
 		# RANGE JOIN: attach the parliament period to each calendar day (start <= day <= end).
 		
-		# please note that this is NOT correct yet.
+		# please note that this is NOT correct yet - and also actually not needed, see around line 659. 
+		# I will keep this here however as an example for myself how to do a merge properly datatable styles
 		
 				head(PARL)
 				head(DAILY_COUNTS)
@@ -651,22 +653,273 @@ ggplot(DAILY_COUNTS, aes(x = thisday, y = pol_all)) +
 				head(DAILY_COUNTS)
 				head(TEMP)
 				tail(TEMP)
+		
+		# we need this info in the plots e.t.c. later anyways, so lets update DAILY_COUNTS
+		DAILY_COUNTS <- TEMP
+
+
+		## plot with vertical lines for all the starts of the parliamentary terms
+		dev.off()
+
+		## 1) Term starts (filtered by your existing xrange)
+		parl_starts_all <- PARL$leg_period_start_dateformat |> unique() |> sort()
+		parl_starts_win <- parl_starts_all[
+		  parl_starts_all >= as.Date(xrange[1]) &
+		  parl_starts_all <= as.Date(xrange[2])
+		]
+
+		## 2) Reusable pieces
+		common_scales <- list(
+		  scale_y_continuous(name = yname, breaks = ybreaks, labels = ylabels, limits = yrange),
+		  scale_x_date(name = "Percentage of women in Tweede Kamer over time", limits = xrange),
+		  theme_minimal()
+		)
+
+		term_lines_layer <- geom_vline(
+		  data = data.frame(start = parl_starts_win),
+		  aes(xintercept = start),
+		  linetype = "dashed",
+		  linewidth = 0.35,
+		  alpha = 0.6,
+		  inherit.aes = FALSE
+		)
+
+		## labels next to each vline
+		window_days <- as.numeric(as.Date(xrange[2]) - as.Date(xrange[1]))
+		days_nudge  <- max(1, round(window_days * 0.005))  # ~0.5% window width
+		y_top       <- yrange[2] - 0.01 * (yrange[2] - yrange[1])
+
+		labels_df <- data.frame(
+		  start = parl_starts_win,
+		  xlab  = parl_starts_win + days_nudge,    # to the right of the vline
+		  ylab  = y_top,
+		  year  = format(parl_starts_win, "%Y")
+		)
+
+		label_layer <- geom_text(
+		  data = labels_df,
+		  aes(x = xlab, y = ylab, label = year),
+		  angle = 90, hjust = 0, vjust = 0.5, size = 3,
+		  inherit.aes = FALSE,
+		  check_overlap = TRUE
+		)
+
+		## 3) Base plot (no repetition of ranges)
+		p_women_base <-
+		  ggplot(DAILY_COUNTS, aes(x = thisday, y = proportion_female)) +
+		  geom_line(linewidth = 0.8, color = "black") +
+		  common_scales
+
+		## 4) With/without vertical lines (and labels + running-average overlay)
+		p_women_base                                      # no lines
+
+		p_women_base + term_lines_layer                   # with parliamentary starts
+
+		p_women_base +
+		  term_lines_layer +
+		  label_layer +
+		  geom_step(                                      # <-- running-average overlay
+			data = DELTA,
+			aes(x = term_start, y = running_average_with_atelection_fluctu_only / 100),
+			size = 1.2, color = "darkgreen", linetype = 1, inherit.aes = FALSE
+		  ) +
+		  coord_cartesian(clip = "off") +
+		  theme(plot.margin = margin(10, 30, 10, 10))     # room for rotated labels
+
 				
-		  
-		  +
-	#	  geom_point(data=IPU_NL, aes(x=rformateddate, y=propwomen),shape=7,size=2.5) +
-		   +
-		  geom_vline(aes(xintercept=UNI_NL$election_date_asdate), linetype=1, colour="gray",size=1) +
-		  
-	#	  geom_point(data=UNI_NL, aes(x=before, y=gender_before),shape=15,size=3,colour="darkgreen") +
-	#	  geom_point(data=UNI_NL, aes(x=after, y=gender_after),shape=16,size=3,colour="darkgreen") +
-		  
-		  geom_step(data=UNI_NL, aes(x=election_date_asdate, y=running_average_with_atelection_fluctu_only),size=1.2,color="darkgreen",linetype=1) +
-	#	  geom_text(data=UNI_NL, aes(x=election_date_asdate, y=running_average_with_atelection_fluctu_only, label=womenextraandless_formatted), vjust=0, hjust=1, angle=45, size=6, color="black",fill="gray") +
-	#	  geom_vline(aes(xintercept=UNI_NL$before), linetype=5, colour="red",size=1) +
-	#	  geom_vline(aes(xintercept=UNI_NL$after), linetype=5, colour="red",size=1) +
-		  theme_grey(base_size = 15) +
-		  theme_pubclean(base_size = 20) +
-		  theme(axis.text.x = element_text(angle = 65, hjust = 1)) +
-		  scale_color_manual(scale_color_manual(values = c("day-by-day" = "black", "Cummulative gender trend with election fluctuations only" = "purple")),name="Trends")
+	## lets get the percentage of women in term start
 	
+		## Ensure data.tables
+		setDT(PARL); setDT(DAILY_COUNTS)
+
+		## 1) Unique NL term starts (one per parliament_id)
+		term_starts <- unique(PARL[, .(parliament_id, term_start = as.Date(leg_period_start_dateformat))])
+
+	#	## (Optional) keep only those within your plotting window if xrange exists # don't think we want this here! This is done later!
+	#	if (exists("xrange")) {
+	#	  term_starts <- term_starts[term_start >= as.Date(xrange[1]) & term_start <= as.Date(xrange[2])]
+	#	}
+	#	term_starts
+
+		## 2) Join on the exact day to grab counts and proportion
+		women_on_term_starts <- DAILY_COUNTS[
+		  term_starts,                      # i
+		  on = .(thisday = term_start),     # exact match day = start day
+		][
+		  , .(
+			  parliament_id,
+			  term_start = thisday,
+			  pol_all,
+			  pol_f,
+			  proportion_female,
+			  pct_women = round(proportion_female * 100, 3)
+			)
+		][order(term_start)]
+
+		women_on_term_starts
+
+	## lets get  percentage of women 'x' days before and after
+		## ---- parameter: how many days before/after ----
+		n_days <- 30   # change to any integer you like
+
+		## Helper that grabs % women at an offset relative to term start
+			grab_pct_women <- function(ts, offset_days, daily = DAILY_COUNTS) {
+			  ts2 <- copy(ts)[, target_day := as.Date(term_start + as.integer(offset_days))]
+			  out <- merge(
+				ts2,
+				daily[, .(thisday, pol_all, pol_f, proportion_female)],  # avoid name clash
+				by.x = "target_day", by.y = "thisday",
+				all.x = TRUE, sort = FALSE
+			  )
+			  out[, `:=`(
+				offset_days = as.integer(offset_days),
+				pct_women   = round(proportion_female * 100, 3)
+			  )]
+			  setorder(out, term_start)
+			  out[, .(parliament_id, term_start, target_day, offset_days,
+					  pol_all, pol_f, proportion_female, pct_women)]
+			}
+
+
+		## use this function to get the percentage before
+		BEFORE <- grab_pct_women(term_starts, -n_days)  # e.g., 7 days before
+		setnames(BEFORE, "pct_women", "pct_women_before_election")
+		BEFORE
+		
+		## use this function to get the percentage after
+		AFTER  <- grab_pct_women(term_starts,  n_days)  # e.g., 7 days after
+		setnames(AFTER, "pct_women", "pct_women_after_election")
+		AFTER		
+				
+		## calculate the differences
+		DELTA <- merge(
+		  BEFORE[, .(parliament_id, term_start, pct_before = pct_women_before_election, before_date = target_day)],
+		  AFTER [, .(parliament_id, pct_after  = pct_women_after_election, after_date = target_day)],
+		  by = "parliament_id"
+		)[order(term_start)][
+		  , election_jumps := round(pct_after - pct_before, 3)][]
+		DELTA
+		
+		# for safety, check if all parliament_ids are unique in DELTA - break the script if not
+		if(!nrow(DELTA) == length(unique(DELTA$parliament_id)))
+		{
+		 DELTA <- NULL
+		}
+		
+		# lets calculate the running total if we would only take the 'election' fluctations into account
+	
+		startdate <- women_on_term_starts$term_start[1]
+		nrow(DELTA)
+		startpercentage <- DELTA$pct_before[which(DELTA$term_start == startdate)]
+		
+		# check, is this indeed the correct first day?!
+		DELTA[1,]
+		
+		# put info into DELTA
+		DELTA$running_average_with_atelection_fluctu_only <- startpercentage + cumsum(DELTA$election_jumps)
+		DELTA
+	
+# plot everything together, basically the VENI plot!
+		## 0) Assumes you already defined: DAILY_COUNTS, DELTA, BEFORE, AFTER,
+		##    xrange, yrange, ybreaks, ylabels, yname, parl_starts_win, labels_df/label_layer
+
+		# Solid grey verticals (closer to your old plot)
+		term_lines_layer <- geom_vline(
+		  data = data.frame(start = parl_starts_win),
+		  aes(xintercept = start),
+		  linewidth = 0.8, linetype = 1, color = "grey60",
+		  inherit.aes = FALSE
+		)
+
+		# Build plot with mapped colors/shapes so we get a legend
+		p_overlaid <-
+		  ggplot() +
+		  # daily line (black)
+		  geom_line(
+			data = DAILY_COUNTS,
+			aes(x = thisday, y = proportion_female, color = "Dagelijks (dag-voor-dag)"),
+			linewidth = 0.8
+		  ) +
+		  # running-average step (dark green) – divide by 100 to match 0–1 y-scale
+		  geom_step(
+			data = DELTA,
+			aes(x = term_start, y = running_average_with_atelection_fluctu_only / 100,
+				color = "Trend (alleen verkiezingssprongen)"),
+			linewidth = 1.2, linetype = 1
+		  ) +
+		  # before / after points (dark green)
+		  geom_point(
+			data = BEFORE,
+			aes(x = target_day, y = pct_women_before_election / 100, shape = paste0("Vóór (",n_days," dagen)")),
+			size = 2.8, color = "darkgreen", stroke = 0
+		  ) +
+		  geom_point(
+			data = AFTER,
+			aes(x = target_day, y = pct_women_after_election / 100, shape = paste0("Na (",n_days," dagen)")),
+			size = 2.8, color = "darkgreen", stroke = 0
+		  ) +
+		  # vertical lines + year labels
+		  term_lines_layer +
+		  label_layer +
+		  # axes & theme (keeps your existing ranges)
+		  scale_y_continuous(name = yname, breaks = ybreaks, labels = ylabels, limits = yrange) +
+		  scale_x_date(name = "Time & Dutch Election Cycles", limits = xrange) +
+		  # legend styling
+		  scale_color_manual(
+			values = c(
+			  "Dagelijks (dag-voor-dag)" = "black",
+			  "Trend (alleen verkiezingssprongen)" = "darkgreen"
+			),
+			name = "Trends"
+		  ) +
+		  scale_shape_manual(
+			values = c(paste0("Vóór (",n_days," dagen)") = 15, paste0("Na (",n_days," dagen)") = 16),
+			name = NULL
+		  ) +
+		  theme_minimal(base_size = 15) +
+		  theme(
+			plot.margin = margin(10, 30, 10, 10),
+			axis.text.x = element_text(angle = 65, hjust = 1),
+			legend.position = "top",
+			legend.box = "horizontal"  # makes the items go side by side
+		  )
+
+		p_overlaid
+			
+## ofcuts!		
+		
+		
+		
+		## merge this all into DAILY_COUNTS
+				
+				tail(DAILY_COUNTS)
+				tail(DELTA)
+				
+				TEMP2 <- DAILY_COUNTS[
+				  DELTA,
+				  on = .(parliament_id),
+				  `:=`(
+				    thisday = x.thisday,
+					pol_all = x.pol_all, 
+					pol_m = x.pol_m, 
+					pol_f = x.pol_f, 
+					pol_nb = x.pol_nb,
+					proportion_female = x.proportion_female,
+					parliament_id = x.parliament_id, 
+					leg_period_start_dateformat = x.leg_period_start_dateformat,
+					pct_before = i.pct_before,
+					pct_after  = i.pct_after,
+					election_jumps = i.election_jumps,
+					running_average_with_atelection_fluctu_only = i.
+					)
+				]
+				tail(TEMP2)
+				nrow(DAILY_COUNTS)
+				nrow(TEMP2)
+				
+		# update DAILY_COUNTS
+		DAILY_COUNTS <- TEMP2
+		tail(DAILY_COUNTS)
+		
+		# are all days in DAILY_COUNTS still unique?
+		nrow(DAILY_COUNTS) == length(unique(DAILY_COUNTS$thisday))
