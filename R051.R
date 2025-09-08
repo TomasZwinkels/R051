@@ -235,7 +235,8 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "top"
   ) +
-  ggtitle("Women's Representation and Parliament Size in Netherlands Over Time")
+  ggtitle("Women's Representation and Parliament Size in Netherlands Over Time") +
+  labs(caption = paste("Generated on:", format(Sys.time(), "%Y-%m-%d at %H:%M:%S")))
 
 # Plot created successfully!
 
