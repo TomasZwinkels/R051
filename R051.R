@@ -8,6 +8,10 @@ pathtocheckerfunctions <- "/home/tomas/projects/ProjectR047_PCCIntegrity/"
 source(paste0(pathtocheckerfunctions,"R047_RESE_functions.R"))
 test_file(paste0(pathtocheckerfunctions,"R047_RESE_unittests.R"))
 
+# Load custom R051 functions
+source("R051_functions.R")
+test_file("R051_unittests.R")
+
 # Import data
 POLI = read.csv("PCC/POLI.csv", header = TRUE, sep = ";")
 RESE = read.csv("PCC/RESE.csv", header = TRUE, sep = ";")
@@ -142,23 +146,7 @@ setDT(PARL)
 setDT(DAILY_COUNTS)
 term_starts <- unique(PARL[, .(parliament_id, term_start = as.Date(leg_period_start_dateformat))])
 
-# Helper function to grab % women at an offset relative to term start
-grab_pct_women <- function(ts, offset_days, daily = DAILY_COUNTS) {
-  ts2 <- copy(ts)[, target_day := as.Date(term_start + as.integer(offset_days))]
-  out <- merge(
-    ts2,
-    daily[, .(thisday, pol_all, pol_f, proportion_female)],
-    by.x = "target_day", by.y = "thisday",
-    all.x = TRUE, sort = FALSE
-  )
-  out[, `:=`(
-    offset_days = as.integer(offset_days),
-    pct_women   = round(proportion_female * 100, 3)
-  )]
-  setorder(out, term_start)
-  out[, .(parliament_id, term_start, target_day, offset_days,
-          pol_all, pol_f, proportion_female, pct_women)]
-}
+# Functions loaded from R051_functions.R
 
 # Get percentage before and after elections
 BEFORE <- grab_pct_women(term_starts, -n_days)
@@ -189,8 +177,6 @@ election_jumps_clean <- DELTA$election_jumps
 election_jumps_clean[is.na(election_jumps_clean)] <- 0
 
 DELTA$running_average_election_only <- startpercentage + cumsum(election_jumps_clean)
-
-# Creating simplified plot...
 
 # Create year labels for parliament starts
 parl_years <- data.frame(
