@@ -1,0 +1,5 @@
+# Normalize line endings for all text files (store as LF in the repo)
+* text=auto
+
+# Be explicit for CSVs so they're consistent on every OS
+*.csv text eol=lf
