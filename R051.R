@@ -3,6 +3,9 @@ library(sqldf); library(stringr); library(readr); library(dplyr); library(writex
 
 setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
+# Configuration: Set country code for analysis
+country_code <- "NL"  # Options: "NL" (Netherlands), "CH" (Switzerland)
+
 # Load data integrity functions 
 pathtocheckerfunctions <- "/home/tomas/projects/ProjectR047_PCCIntegrity/"
 source(paste0(pathtocheckerfunctions,"R047_RESE_functions.R"))
@@ -19,12 +22,17 @@ PARL = read.csv("PCC/PARL.csv", header = TRUE, sep = ";")
 MEME = read.csv("PCC/MEME.csv", header = TRUE, sep = ";")
 
 # Data integrity checks
-RESE <- RESE[which(RESE$country_abb == "NL"),]
-check_RESE_persid_in_POLI(RESE,POLI)
-check_RESE_resentryid_unique(RESE)
+RESE <- RESE[which(RESE$country_abb == country_code),]
+check_RESE_persid_in_POLI(RESE,POLI) # should return TRUE
+check_RESE_resentryid_unique(RESE) # should return TRUE
 
 # Focus on parliamentary membership
-RESE <- RESE[which(RESE$political_function == "NT_LE-LH_T3_NA_01"),]
+RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01")),]
+nrow(RESE)
+
+check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
+check_RESE_anynear_fulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
+
 
 # Data integrity checks with preprocessing
 if( check_RESE_persid_in_POLI(RESE,POLI) == FALSE||
@@ -35,6 +43,7 @@ if( check_RESE_persid_in_POLI(RESE,POLI) == FALSE||
 {
 RESE <- NULL
 }
+nrow(RESE)
 
 # Date processing for RESE
 RESE$res_entry_start <- gsub("[[rcen]]","",RESE$res_entry_start,fixed=TRUE)
@@ -54,11 +63,11 @@ PARL$leg_period_end <- gsub("[[lcen]]","",PARL$leg_period_end,fixed=TRUE)
 PARL$leg_period_start_dateformat <- as.Date(as.character(PARL$leg_period_start),format=c("%d%b%Y"))
 PARL$leg_period_end_dateformat <- as.Date(as.character(PARL$leg_period_end),format=c("%d%b%Y"))
 
-# Focus on NL
-PARL <- PARL[which(PARL$country_abb == "NL"),]
+# Focus on selected country and national level only (excludes regional Swiss data)
+PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & (PARL$assembly_abb == "TK" | PARL$assembly_abb == "NR")),]
 
-# Filter again for parliamentary episodes in Netherlands
-RESE <- RESE[which(RESE$country_abb == "NL" & RESE$political_function == "NT_LE-LH_T3_NA_01"),]
+# Filter again for parliamentary episodes in selected country
+RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01")),]
 
 # Merge with POLI to get gender info
 RESEBU <- RESE %>%
@@ -98,30 +107,34 @@ days_dt <- data.table(thisday = all_days)
 print(paste("Created", length(all_days), "days from", min(all_days), "to", max(all_days)))
 
 # Calculate daily counts with caching system
-# Check if data has changed by comparing versions
+# Check if data has changed by comparing versions (country-specific caching)
 current_data_version <- trimws(readLines("PCC/dataversion.txt")[1])
-version_file <- "dataversion_latest_run.txt"
-cache_file <- "daily_counts_cache.RData"
+version_file <- paste0("dataversion_latest_run_", country_code, ".txt")
+cache_file <- paste0("daily_counts_cache_", country_code, ".RData")
 
 # Check if we need to recalculate or can load from cache
+recalculate_needed <- FALSE  # Reset flag
+
 if (file.exists(version_file) && file.exists(cache_file)) {
   last_run_version <- trimws(readLines(version_file)[1])
   
   if (current_data_version == last_run_version) {
-    cat("Data version unchanged (", current_data_version, "), loading cached daily counts...\n")
+    cat("Data version unchanged (", current_data_version, ") for country", country_code, ", loading cached daily counts...\n")
     load(cache_file)
+    cat("Successfully loaded cached data.\n")
   } else {
-    cat("Data version changed from", last_run_version, "to", current_data_version, "\n")
+    cat("Data version changed from", last_run_version, "to", current_data_version, "for country", country_code, "\n")
     cat("Recalculating daily counts - this may take a while...\n")
     recalculate_needed <- TRUE
   }
 } else {
-  cat("No cache found, calculating daily counts for the first time - this may take a while...\n")
+  cat("No cache found for country", country_code, "or has not run for this country on this data version before.\n")
+  cat("Calculating daily counts for the first time - this may take a while...\n")
   recalculate_needed <- TRUE
 }
 
 # Only recalculate if needed
-if (exists("recalculate_needed")) {
+if (recalculate_needed) {
   DAILY_COUNTS_ALL <- days_dt[, .(
     pol_all = RESEBU[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
                      uniqueN(pers_id)]
@@ -306,6 +319,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     sec.axis = sec_axis(
       ~ ., 
       name = "Proportion of Women",
+      breaks = seq(0, 1, 0.2),
       labels = scales::percent_format()
     )
   ) +
@@ -320,14 +334,16 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "top"
   ) +
-  ggtitle("Women's Representation and Parliament Size in Netherlands Over Time") +
+  ggtitle(paste("Women's Representation and Parliament Size in", 
+                ifelse(country_code == "NL", "Netherlands", "Switzerland"), "Over Time")) +
   labs(caption = paste("Generated on:", format(Sys.time(), "%Y-%m-%d at %H:%M:%S")))
 
 # Plot created successfully!
 
 # Save the plot
-ggsave("women_representation_simplified.png", plot = p_simple, width = 16, height = 8, dpi = 150, bg = "white")
-# Plot saved as women_representation_simplified.png with double width!
+plot_filename <- paste0("women_representation_simplified_", country_code, ".png")
+ggsave(plot_filename, plot = p_simple, width = 16, height = 8, dpi = 150, bg = "white")
+cat("Plot saved as", plot_filename, "with double width!\n")
 
 # Create final deviation dataframe for export/analysis
 final_deviations <- detect_parliament_deviations(DAILY_COUNTS, parl_baseline, seat_threshold = 5, duration_threshold_days = 90, merge_gap_days = 7)
