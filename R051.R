@@ -97,33 +97,60 @@ days_dt <- data.table(thisday = all_days)
 
 print(paste("Created", length(all_days), "days from", min(all_days), "to", max(all_days)))
 
-# Calculate daily counts (simplified version for faster execution)
-# Calculating daily counts - this may take a while...
+# Calculate daily counts with caching system
+# Check if data has changed by comparing versions
+current_data_version <- trimws(readLines("PCC/dataversion.txt")[1])
+version_file <- "dataversion_latest_run.txt"
+cache_file <- "daily_counts_cache.RData"
 
-DAILY_COUNTS_ALL <- days_dt[, .(
-  pol_all = RESEBU[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
-                   uniqueN(pers_id)]
-), by = thisday]
+# Check if we need to recalculate or can load from cache
+if (file.exists(version_file) && file.exists(cache_file)) {
+  last_run_version <- trimws(readLines(version_file)[1])
+  
+  if (current_data_version == last_run_version) {
+    cat("Data version unchanged (", current_data_version, "), loading cached daily counts...\n")
+    load(cache_file)
+  } else {
+    cat("Data version changed from", last_run_version, "to", current_data_version, "\n")
+    cat("Recalculating daily counts - this may take a while...\n")
+    recalculate_needed <- TRUE
+  }
+} else {
+  cat("No cache found, calculating daily counts for the first time - this may take a while...\n")
+  recalculate_needed <- TRUE
+}
 
-DAILY_COUNTS_MALE <- days_dt[, .(
-  pol_m = RESEBU_MALE[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
-                      uniqueN(pers_id)]
-), by = thisday]
+# Only recalculate if needed
+if (exists("recalculate_needed")) {
+  DAILY_COUNTS_ALL <- days_dt[, .(
+    pol_all = RESEBU[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
+                     uniqueN(pers_id)]
+  ), by = thisday]
 
-DAILY_COUNTS_FEMALE <- days_dt[, .(
-  pol_f = RESEBU_FEMALE[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
+  DAILY_COUNTS_MALE <- days_dt[, .(
+    pol_m = RESEBU_MALE[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
                         uniqueN(pers_id)]
-), by = thisday]
+  ), by = thisday]
 
-# Merging daily counts...
+  DAILY_COUNTS_FEMALE <- days_dt[, .(
+    pol_f = RESEBU_FEMALE[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
+                          uniqueN(pers_id)]
+  ), by = thisday]
 
-# Merge all by thisday
-DAILY_COUNTS <- Reduce(function(x, y) merge(x, y, by = "thisday", all = TRUE),
-                      list(DAILY_COUNTS_ALL, DAILY_COUNTS_MALE, DAILY_COUNTS_FEMALE)
-)
+  # Merge all by thisday
+  DAILY_COUNTS <- Reduce(function(x, y) merge(x, y, by = "thisday", all = TRUE),
+                        list(DAILY_COUNTS_ALL, DAILY_COUNTS_MALE, DAILY_COUNTS_FEMALE)
+  )
 
-# Calculate proportions
-DAILY_COUNTS[, proportion_female := pol_f / pol_all]
+  # Calculate proportions
+  DAILY_COUNTS[, proportion_female := pol_f / pol_all]
+  
+  # Save cache and update version file
+  save(DAILY_COUNTS_ALL, DAILY_COUNTS_MALE, DAILY_COUNTS_FEMALE, DAILY_COUNTS, file = cache_file)
+  writeLines(current_data_version, version_file)
+  
+  cat("Daily counts calculation completed and cached.\n")
+}
 
 # Add parliament session start lines
 # Get unique parliament start dates for vertical lines
@@ -139,7 +166,7 @@ parl_starts <- sort(parl_starts)
 
 # Calculate fictional "election-only" fluctuations
 # Parameter: how many days before/after elections to measure
-n_days <- 30  # change to any integer you like
+n_days <- 60  # change to any integer you like
 
 # Get unique parliament start dates with their IDs
 setDT(PARL)
@@ -194,6 +221,50 @@ parl_baseline <- PARL[, .(
   baseline_size = as.numeric(parliament_size)
 )][order(start_date)]
 
+# Get deviation periods for highlighting
+deviation_periods <- detect_parliament_deviations(DAILY_COUNTS, parl_baseline, seat_threshold = 5, duration_threshold_days = 90, merge_gap_days = 7)
+
+# Create segments data for red highlighting during deviation periods
+if (nrow(deviation_periods) > 0) {
+  deviation_segments <- data.table()
+  for (i in seq_len(nrow(deviation_periods))) {
+    period_data <- DAILY_COUNTS[thisday >= deviation_periods$start_date[i] & 
+                               thisday <= deviation_periods$end_date[i]]
+    if (nrow(period_data) > 0) {
+      segment_data <- data.table(
+        thisday = period_data$thisday,
+        pol_all_normalized = period_data$pol_all / max(DAILY_COUNTS$pol_all, na.rm = TRUE),
+        deviation_type = deviation_periods$deviation_type[i],
+        period_id = i  # Add period ID to keep segments separate
+      )
+      deviation_segments <- rbind(deviation_segments, segment_data)
+    }
+  }
+  
+  # Create warning labels positioned relative to the actual data values
+  warning_labels <- data.table()
+  for (i in seq_len(nrow(deviation_periods))) {
+    period_data <- DAILY_COUNTS[thisday >= deviation_periods$start_date[i] & 
+                               thisday <= deviation_periods$end_date[i]]
+    if (nrow(period_data) > 0) {
+      mean_mp_count <- mean(period_data$pol_all, na.rm = TRUE)
+      # Normalize to plot scale (0-1) with -10 offset to position just below the data
+      y_position <- (mean_mp_count - 10) / max(DAILY_COUNTS$pol_all, na.rm = TRUE)
+      
+      label_row <- data.table(
+        x = deviation_periods$start_date[i] + (deviation_periods$end_date[i] - deviation_periods$start_date[i]) / 2,
+        y = y_position,
+        label = paste0("WARNING!\nStructurally ", 
+                       ifelse(deviation_periods$deviation_type[i] == "structurally_too_high", "too high", "too low"))
+      )
+      warning_labels <- rbind(warning_labels, label_row)
+    }
+  }
+} else {
+  deviation_segments <- data.table()
+  warning_labels <- data.table()
+}
+
 # Create a triple-line plot 
 p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
   geom_vline(xintercept = parl_starts, color = "gray70", alpha = 0.6, linewidth = 0.3) +
@@ -214,6 +285,20 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
             aes(x = term_start, y = running_average_election_only / 100, 
                 color = "Election-Only Trend"), 
             linewidth = 1.0) +
+  # Add red highlighting for deviation periods (thicker and more visible)
+  {if (nrow(deviation_segments) > 0) 
+    geom_line(data = deviation_segments, 
+              aes(x = thisday, y = pol_all_normalized, group = period_id), 
+              color = "red", linewidth = 2.5, alpha = 0.8) 
+   else NULL} +
+  # Add warning labels with background boxes
+  {if (nrow(warning_labels) > 0)
+    geom_label(data = warning_labels,
+               aes(x = x, y = y, label = label),
+               color = "red", size = 2.5, fontface = "bold",
+               fill = "white", alpha = 0.8,
+               hjust = 0.5, vjust = 0.5)
+   else NULL} +
   scale_y_continuous(
     name = "Total Number of MPs", 
     breaks = scales::pretty_breaks(n = 6),
@@ -243,5 +328,8 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
 # Save the plot
 ggsave("women_representation_simplified.png", plot = p_simple, width = 16, height = 8, dpi = 150, bg = "white")
 # Plot saved as women_representation_simplified.png with double width!
+
+# Create final deviation dataframe for export/analysis
+final_deviations <- detect_parliament_deviations(DAILY_COUNTS, parl_baseline, seat_threshold = 5, duration_threshold_days = 90, merge_gap_days = 7)
 
 p_simple

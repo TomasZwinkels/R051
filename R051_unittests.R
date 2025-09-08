@@ -268,3 +268,120 @@ test_that("Functions work together in typical workflow", {
   # With perfect data, should find no deviations
   expect_equal(nrow(deviations), 0)
 })
+
+# Test merge_gap_days functionality
+test_that("detect_parliament_deviations merges closely spaced periods", {
+  
+  # Create test data with two close deviation periods
+  test_daily_counts <- data.table(
+    thisday = seq(as.Date("2020-01-01"), as.Date("2020-07-31"), by = "day"),
+    pol_all = c(rep(140, 90),     # 90 days too low
+                rep(150, 5),      # 5 days normal (gap)
+                rep(140, 90),     # 90 days too low
+                rep(150, 28))     # rest normal
+  )
+  
+  test_baseline <- data.table(
+    parliament_id = "TEST_2020",
+    start_date = as.Date("2020-01-01"),
+    end_date = as.Date("2020-12-31"),
+    baseline_size = 150
+  )
+  
+  # Test with default merge_gap_days (7) - should merge
+  result_merged <- detect_parliament_deviations(test_daily_counts, test_baseline,
+                                               merge_gap_days = 7)
+  expect_equal(nrow(result_merged), 1)
+  expect_equal(result_merged$duration_days, 185) # 90 + 5 + 90
+  
+  # Test with merge_gap_days = 0 - should NOT merge
+  result_not_merged <- detect_parliament_deviations(test_daily_counts, test_baseline,
+                                                   merge_gap_days = 0)
+  expect_equal(nrow(result_not_merged), 2)
+  expect_true(all(result_not_merged$duration_days == 90))
+})
+
+test_that("detect_parliament_deviations respects merge_gap_days threshold", {
+  
+  # Create test data with periods separated by 10 days
+  test_daily_counts <- data.table(
+    thisday = seq(as.Date("2020-01-01"), as.Date("2020-08-31"), by = "day"),
+    pol_all = c(rep(140, 90),     # 90 days too low
+                rep(150, 10),     # 10 days normal (gap)
+                rep(140, 90),     # 90 days too low
+                rep(150, 54))     # rest normal
+  )
+  
+  test_baseline <- data.table(
+    parliament_id = "TEST_2020",
+    start_date = as.Date("2020-01-01"),
+    end_date = as.Date("2020-12-31"),
+    baseline_size = 150
+  )
+  
+  # Test with merge_gap_days = 7 - should NOT merge (gap is 10 days)
+  result_7_days <- detect_parliament_deviations(test_daily_counts, test_baseline,
+                                               merge_gap_days = 7)
+  expect_equal(nrow(result_7_days), 2)
+  
+  # Test with merge_gap_days = 15 - should merge (gap is 10 days)
+  result_15_days <- detect_parliament_deviations(test_daily_counts, test_baseline,
+                                                merge_gap_days = 15)
+  expect_equal(nrow(result_15_days), 1)
+  expect_equal(result_15_days$duration_days, 190) # 90 + 10 + 90
+})
+
+test_that("detect_parliament_deviations only merges same deviation types", {
+  
+  # Create test data with alternating high/low deviations
+  test_daily_counts <- data.table(
+    thisday = seq(as.Date("2020-01-01"), as.Date("2020-09-30"), by = "day"),
+    pol_all = c(rep(140, 90),     # 90 days too low
+                rep(150, 3),      # 3 days normal (small gap)
+                rep(160, 90),     # 90 days too high
+                rep(150, 90))     # rest normal
+  )
+  
+  test_baseline <- data.table(
+    parliament_id = "TEST_2020",
+    start_date = as.Date("2020-01-01"),
+    end_date = as.Date("2020-12-31"),
+    baseline_size = 150
+  )
+  
+  # Even with large merge_gap_days, should NOT merge different types
+  result <- detect_parliament_deviations(test_daily_counts, test_baseline,
+                                        merge_gap_days = 30)
+  expect_equal(nrow(result), 2)
+  expect_true("structurally_too_low" %in% result$deviation_type)
+  expect_true("structurally_too_high" %in% result$deviation_type)
+  expect_true(all(result$duration_days == 90))
+})
+
+test_that("detect_parliament_deviations updates merged period statistics correctly", {
+  
+  # Create test data with two periods having different average deviations
+  test_daily_counts <- data.table(
+    thisday = seq(as.Date("2020-01-01"), as.Date("2020-07-31"), by = "day"),
+    pol_all = c(rep(140, 90),     # 90 days, -10 deviation
+                rep(150, 2),      # 2 days normal (small gap)
+                rep(135, 90),     # 90 days, -15 deviation
+                rep(150, 31))     # rest normal
+  )
+  
+  test_baseline <- data.table(
+    parliament_id = "TEST_2020",
+    start_date = as.Date("2020-01-01"),
+    end_date = as.Date("2020-12-31"),
+    baseline_size = 150
+  )
+  
+  result <- detect_parliament_deviations(test_daily_counts, test_baseline,
+                                        merge_gap_days = 5)
+  
+  expect_equal(nrow(result), 1)
+  # Check that statistics are properly calculated for merged period
+  expect_equal(result$duration_days, 182) # 90 + 2 + 90
+  expect_equal(result$avg_deviation, -11.7) # Weighted average: (-10*90 + -15*90)/(90+2+90)
+  expect_equal(result$max_deviation, 15) # Maximum absolute deviation
+})

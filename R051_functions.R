@@ -22,7 +22,8 @@ grab_pct_women <- function(ts, offset_days, daily = DAILY_COUNTS) {
 # Function to detect problematic deviations from parliament size baseline
 detect_parliament_deviations <- function(daily_counts, parl_baseline, 
                                        seat_threshold = 5, 
-                                       duration_threshold_days = 90) {
+                                       duration_threshold_days = 90,
+                                       merge_gap_days = 7) {
   
   # Merge daily counts with appropriate baseline for each day
   daily_with_baseline <- copy(daily_counts)
@@ -77,6 +78,49 @@ detect_parliament_deviations <- function(daily_counts, parl_baseline,
       
       deviation_periods$parliament_ids[i] <- paste(relevant_parliaments, collapse = ", ")
     }
+  }
+  
+  # Merge closely spaced deviation periods of the same type
+  if (nrow(deviation_periods) > 1 && merge_gap_days > 0) {
+    deviation_periods <- deviation_periods[order(deviation_type, start_date)]
+    merged_periods <- data.table()
+    
+    for (dev_type in unique(deviation_periods$deviation_type)) {
+      type_periods <- deviation_periods[deviation_type == dev_type][order(start_date)]
+      
+      if (nrow(type_periods) > 0) {
+        current_period <- type_periods[1]
+        
+        if (nrow(type_periods) > 1) {
+          for (i in 2:nrow(type_periods)) {
+            gap_days <- as.numeric(type_periods$start_date[i] - current_period$end_date) - 1
+            
+            if (gap_days <= merge_gap_days) {
+              # Merge periods
+              current_period$end_date <- type_periods$end_date[i]
+              current_period$duration_days <- as.numeric(current_period$end_date - current_period$start_date) + 1
+              current_period$avg_deviation <- round(
+                (current_period$avg_deviation * current_period$duration_days + 
+                 type_periods$avg_deviation[i] * type_periods$duration_days[i]) / 
+                (current_period$duration_days + type_periods$duration_days[i]), 1
+              )
+              current_period$max_deviation <- max(current_period$max_deviation, type_periods$max_deviation[i])
+              current_period$parliament_ids <- paste(
+                unique(c(strsplit(current_period$parliament_ids, ", ")[[1]], 
+                         strsplit(type_periods$parliament_ids[i], ", ")[[1]])), 
+                collapse = ", "
+              )
+            } else {
+              # Start new period
+              merged_periods <- rbind(merged_periods, current_period)
+              current_period <- type_periods[i]
+            }
+          }
+        }
+        merged_periods <- rbind(merged_periods, current_period)
+      }
+    }
+    deviation_periods <- merged_periods[order(start_date)]
   }
   
   # Filter by duration threshold
