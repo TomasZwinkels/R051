@@ -198,6 +198,16 @@ parl_years <- data.frame(
   year = format(parl_starts, "%Y")
 )
 
+# Create parliament size baseline for integrity checking
+# Convert parliament_size to numeric and create step function data
+setDT(PARL)
+parl_baseline <- PARL[, .(
+  parliament_id,
+  start_date = leg_period_start_dateformat,
+  end_date = leg_period_end_dateformat,
+  baseline_size = as.numeric(parliament_size)
+)][order(start_date)]
+
 # Create a triple-line plot 
 p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
   geom_vline(xintercept = parl_starts, color = "gray70", alpha = 0.6, linewidth = 0.3) +
@@ -209,6 +219,10 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
             hjust = 0, 
             vjust = 0.5) +
   geom_line(aes(y = pol_all / max(pol_all, na.rm = TRUE), color = "Total MPs"), linewidth = 0.8) +
+  geom_step(data = parl_baseline, 
+            aes(x = start_date, y = baseline_size / max(DAILY_COUNTS$pol_all, na.rm = TRUE), 
+                color = "Parliament Size Baseline"), 
+            linewidth = 1.0) +
   geom_line(aes(y = proportion_female, color = "Daily Women %"), linewidth = 0.8) +
   geom_step(data = DELTA, 
             aes(x = term_start, y = running_average_election_only / 100, 
@@ -226,7 +240,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
   ) +
   scale_x_date(name = "Time") +
   scale_color_manual(
-    values = c("Daily Women %" = "red", "Total MPs" = "blue", "Election-Only Trend" = "green"),
+    values = c("Daily Women %" = "red", "Total MPs" = "blue", "Parliament Size Baseline" = "black", "Election-Only Trend" = "green"),
     name = "Measures"
   ) +
   theme_minimal(base_size = 18) +
