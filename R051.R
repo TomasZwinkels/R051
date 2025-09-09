@@ -16,10 +16,10 @@ source("R051_functions.R")
 test_file("R051_unittests.R")
 
 # Import data
-POLI = read.csv("PCC/POLI.csv", header = TRUE, sep = ";")
-RESE = read.csv("PCC/RESE.csv", header = TRUE, sep = ";")
-PARL = read.csv("PCC/PARL.csv", header = TRUE, sep = ";")
-MEME = read.csv("PCC/MEME.csv", header = TRUE, sep = ";")
+POLI = read.csv("/home/tomas/projects/PCCdata/POLI.csv", header = TRUE, sep = ";")
+RESE = read.csv("/home/tomas/projects/PCCdata/RESE.csv", header = TRUE, sep = ";")
+PARL = read.csv("/home/tomas/projects/PCCdata/PARL.csv", header = TRUE, sep = ";")
+MEME = read.csv("/home/tomas/projects/PCCdata/MEME.csv", header = TRUE, sep = ";")
 
 # Data integrity checks
 RESE <- RESE[which(RESE$country_abb == country_code),]
@@ -108,7 +108,7 @@ print(paste("Created", length(all_days), "days from", min(all_days), "to", max(a
 
 # Calculate daily counts with caching system
 # Check if data has changed by comparing versions (country-specific caching)
-current_data_version <- trimws(readLines("PCC/dataversion.txt")[1])
+current_data_version <- trimws(readLines("/home/tomas/projects/PCCdata/dataversion.txt")[1])
 version_file <- paste0("dataversion_latest_run_", country_code, ".txt")
 cache_file <- paste0("daily_counts_cache_", country_code, ".RData")
 

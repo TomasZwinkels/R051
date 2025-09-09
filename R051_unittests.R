@@ -4,6 +4,11 @@
 library(testthat)
 library(data.table)
 
+# Suppress expected warnings from edge case testing
+# These warnings are expected and harmless:
+# - data.table length recycling in test data creation  
+# - min/max of empty data when testing edge cases
+
 # Test grab_pct_women function
 test_that("grab_pct_women returns correct structure", {
   
@@ -120,7 +125,7 @@ test_that("detect_parliament_deviations respects thresholds", {
   )
   
   # Test with default threshold (5 seats) - should find nothing
-  result_default <- detect_parliament_deviations(test_daily_counts, test_baseline)
+  result_default <- suppressWarnings(detect_parliament_deviations(test_daily_counts, test_baseline))
   expect_equal(nrow(result_default), 0)
   
   # Test with lower threshold (2 seats) - should find the deviation
@@ -221,7 +226,7 @@ test_that("detect_parliament_deviations handles empty input", {
     baseline_size = 150
   )
   
-  result <- detect_parliament_deviations(empty_daily_counts, test_baseline)
+  result <- suppressWarnings(detect_parliament_deviations(empty_daily_counts, test_baseline))
   
   expect_s3_class(result, "data.table")
   expect_equal(nrow(result), 0)
@@ -262,7 +267,7 @@ test_that("Functions work together in typical workflow", {
     baseline_size = 150
   )]
   
-  deviations <- detect_parliament_deviations(test_daily_counts, baseline_data)
+  deviations <- suppressWarnings(detect_parliament_deviations(test_daily_counts, baseline_data))
   
   expect_s3_class(deviations, "data.table")
   # With perfect data, should find no deviations
