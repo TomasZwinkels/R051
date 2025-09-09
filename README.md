@@ -43,7 +43,28 @@ install.packages(c(
 
 ### Data Requirements
 
-The script expects data files in the `PCC/` directory:
+**Data Source Setup:**
+The script now uses a centralized data repository. You need to:
+
+1. **Clone the data repository:**
+   ```bash
+   git clone https://github.com/TomasZwinkels/PCCdata.git
+   ```
+
+2. **Update data paths in the script:**
+   The script currently expects data files at `/home/tomas/projects/PCCdata/`. 
+   **You must edit these paths in `R051.R` to match your local setup:**
+   
+   ```r
+   # Lines to update in R051.R:
+   POLI = read.csv("/path/to/your/PCCdata/POLI.csv", header = TRUE, sep = ";")
+   RESE = read.csv("/path/to/your/PCCdata/RESE.csv", header = TRUE, sep = ";")
+   PARL = read.csv("/path/to/your/PCCdata/PARL.csv", header = TRUE, sep = ";")
+   MEME = read.csv("/path/to/your/PCCdata/MEME.csv", header = TRUE, sep = ";")
+   current_data_version <- trimws(readLines("/path/to/your/PCCdata/dataversion.txt")[1])
+   ```
+
+**Required data files from PCCdata repository:**
 - `POLI.csv` - Politician information (including gender data)
 - `RESE.csv` - Parliamentary membership episodes 
 - `PARL.csv` - Parliament period information (including `parliament_size` variable)
@@ -100,15 +121,19 @@ R051_NewDaybyDay/
 ├── R051.R                    # Main analysis script
 ├── R051_functions.R          # Custom functions
 ├── R051_unittests.R         # Comprehensive test suite
-├── PCC/                     # Data directory
+├── daily_counts_cache.RData # Performance cache
+├── dataversion_latest_run.txt # Cache versioning
+└── women_representation_simplified.png # Output plot
+
+External Dependencies:
+├── PCCdata/                 # Centralized data repository (clone separately)
 │   ├── POLI.csv
 │   ├── RESE.csv
 │   ├── PARL.csv
 │   ├── MEME.csv
 │   └── dataversion.txt
-├── daily_counts_cache.RData # Performance cache
-├── dataversion_latest_run.txt # Cache versioning
-└── women_representation_simplified.png # Output plot
+└── ProjectR047_PCCIntegrity/ # Data integrity functions
+    └── R047_RESE_functions.R
 ```
 
 ## 🧪 Testing
