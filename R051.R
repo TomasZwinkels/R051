@@ -4,7 +4,7 @@ library(sqldf); library(stringr); library(readr); library(dplyr); library(writex
 setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
-country_code <- "NL"  # Options: "NL" (Netherlands), "CH" (Switzerland)
+country_code <- "DE"  # Options: "NL" (Netherlands), "CH" (Switzerland)
 
 # Load data integrity functions 
 pathtocheckerfunctions <- "/home/tomas/projects/ProjectR047_PCCIntegrity/"
@@ -64,7 +64,11 @@ PARL$leg_period_start_dateformat <- as.Date(as.character(PARL$leg_period_start),
 PARL$leg_period_end_dateformat <- as.Date(as.character(PARL$leg_period_end),format=c("%d%b%Y"))
 
 # Focus on selected country and national level only (excludes regional Swiss data)
-PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & (PARL$assembly_abb == "TK" | PARL$assembly_abb == "NR")),]
+if (country_code == "DE") {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "BT"),]
+} else {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & (PARL$assembly_abb == "TK" | PARL$assembly_abb == "NR")),]
+}
 
 # Filter again for parliamentary episodes in selected country
 RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01")),]
@@ -335,7 +339,8 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     legend.position = "top"
   ) +
   ggtitle(paste("Women's Representation and Parliament Size in", 
-                ifelse(country_code == "NL", "Netherlands", "Switzerland"), "Over Time")) +
+                ifelse(country_code == "NL", "Netherlands", 
+                       ifelse(country_code == "CH", "Switzerland", "Germany")), "Over Time")) +
   labs(caption = paste("Generated on:", format(Sys.time(), "%Y-%m-%d at %H:%M:%S")))
 
 # Plot created successfully!
