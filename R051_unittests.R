@@ -4,6 +4,12 @@
 library(testthat)
 library(data.table)
 
+test_file_dir <- tryCatch(
+  dirname(normalizePath(sys.frame(1)$ofile)),
+  error = function(e) getwd()
+)
+source(file.path(test_file_dir, "R051_functions.R"))
+
 # Suppress expected warnings from edge case testing
 # These warnings are expected and harmless:
 # - data.table length recycling in test data creation  
@@ -89,7 +95,7 @@ test_that("detect_parliament_deviations identifies deviations correctly", {
   # Create test data with known deviation
   test_daily_counts <- data.table(
     thisday = seq(as.Date("2020-01-01"), as.Date("2020-06-30"), by = "day"),
-    pol_all = c(rep(145, 90), rep(160, 91)) # 5 low, then 10 high
+    pol_all = c(rep(145, 90), rep(160, 92)) # 5 low, then 10 high
   )
   
   test_baseline <- data.table(
@@ -114,7 +120,7 @@ test_that("detect_parliament_deviations respects thresholds", {
   # Create test data with small deviation
   test_daily_counts <- data.table(
     thisday = seq(as.Date("2020-01-01"), as.Date("2020-06-30"), by = "day"),
-    pol_all = rep(147, 181) # Only 3 seats low
+    pol_all = rep(147, 182) # Only 3 seats low
   )
   
   test_baseline <- data.table(
@@ -167,7 +173,7 @@ test_that("detect_parliament_deviations handles multiple parliament periods", {
   # Create test data spanning two parliament periods
   test_daily_counts <- data.table(
     thisday = seq(as.Date("2020-01-01"), as.Date("2025-01-01"), by = "day"),
-    pol_all = c(rep(90, 365*2), rep(140, 365*3)) # Low for 2 years, then different baseline
+    pol_all = c(rep(90, 365*2 + 1), rep(140, 365*3 + 2)) # Low for 2 years, then different baseline
   )
   
   test_baseline <- data.table(
@@ -344,7 +350,7 @@ test_that("detect_parliament_deviations only merges same deviation types", {
     pol_all = c(rep(140, 90),     # 90 days too low
                 rep(150, 3),      # 3 days normal (small gap)
                 rep(160, 90),     # 90 days too high
-                rep(150, 90))     # rest normal
+                rep(150, 91))     # rest normal
   )
   
   test_baseline <- data.table(

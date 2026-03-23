@@ -4,7 +4,15 @@ library(sqldf); library(stringr); library(readr); library(dplyr); library(writex
 setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
-country_code <- "DE"  # Options: "NL" (Netherlands), "CH" (Switzerland)
+country_code <- "NO"  # Options: "DE" (Germany), "NL" (Netherlands), "CH" (Switzerland), "NO" (Norway)
+country_name <- switch(
+  country_code,
+  "NL" = "Netherlands",
+  "CH" = "Switzerland",
+  "NO" = "Norway",
+  "DE" = "Germany",
+  country_code
+)
 
 # Load data integrity functions 
 pathtocheckerfunctions <- "/home/tomas/projects/ProjectR047_PCCIntegrity/"
@@ -27,7 +35,7 @@ check_RESE_persid_in_POLI(RESE,POLI) # should return TRUE
 check_RESE_resentryid_unique(RESE) # should return TRUE
 
 # Focus on parliamentary membership
-RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01")),]
+RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09")),]
 nrow(RESE)
 
 check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
@@ -66,12 +74,22 @@ PARL$leg_period_end_dateformat <- as.Date(as.character(PARL$leg_period_end),form
 # Focus on selected country and national level only (excludes regional Swiss data)
 if (country_code == "DE") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "BT"),]
+} else if (country_code == "NL") {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "TK"),]
+} else if (country_code == "CH") {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "NR"),]
+} else if (country_code == "NO") {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "ST"),]
 } else {
-  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & (PARL$assembly_abb == "TK" | PARL$assembly_abb == "NR")),]
+  stop(paste("Unsupported country_code for PARL filter:", country_code))
+}
+
+if (nrow(PARL) == 0) {
+  stop(paste("No PARL rows found after filtering for country", country_code, "- check assembly_abb and level filters."))
 }
 
 # Filter again for parliamentary episodes in selected country
-RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01")),]
+RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01","NT_LE_T3_NA_09")),]
 
 # Merge with POLI to get gender info
 RESEBU <- RESE %>%
@@ -87,6 +105,8 @@ RESEBU$gender[which(RESEBU$gender == "tm")] <- "m"
 # Focus on relevant variables
 RESEBU <- RESEBU %>% 
             select(res_entry_id, pers_id, gender, res_entry_start_dateformat, res_entry_end_dateformat)
+nrow(RESEBU)
+head(RESEBU)
 
 # Separate by gender
 RESEBU_MALE <- RESEBU[which(RESEBU$gender == "m"),]
@@ -338,9 +358,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     axis.text.x = element_text(angle = 45, hjust = 1),
     legend.position = "top"
   ) +
-  ggtitle(paste("Women's Representation and Parliament Size in", 
-                ifelse(country_code == "NL", "Netherlands", 
-                       ifelse(country_code == "CH", "Switzerland", "Germany")), "Over Time")) +
+  ggtitle(paste("Women's Representation and Parliament Size in", country_name, "Over Time")) +
   labs(caption = paste("Generated on:", format(Sys.time(), "%Y-%m-%d at %H:%M:%S")))
 
 # Plot created successfully!
