@@ -4,13 +4,14 @@ library(sqldf); library(stringr); library(readr); library(dplyr); library(writex
 setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
-country_code <- "NO"  # Options: "DE" (Germany), "NL" (Netherlands), "CH" (Switzerland), "NO" (Norway)
+country_code <- "NO"  # Options: "CA" (Canada), "DE" (Germany), "NL" (Netherlands), "CH" (Switzerland), "NO" (Norway)
 country_name <- switch(
   country_code,
-  "NL" = "Netherlands",
+  "CA" = "Canada",
   "CH" = "Switzerland",
-  "NO" = "Norway",
   "DE" = "Germany",
+  "NL" = "Netherlands",
+  "NO" = "Norway",
   country_code
 )
 
@@ -72,12 +73,14 @@ PARL$leg_period_start_dateformat <- as.Date(as.character(PARL$leg_period_start),
 PARL$leg_period_end_dateformat <- as.Date(as.character(PARL$leg_period_end),format=c("%d%b%Y"))
 
 # Focus on selected country and national level only (excludes regional Swiss data)
-if (country_code == "DE") {
+if (country_code == "CA") {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "HC"),]
+} else if (country_code == "CH") {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "NR"),]
+} else if (country_code == "DE") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "BT"),]
 } else if (country_code == "NL") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "TK"),]
-} else if (country_code == "CH") {
-  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "NR"),]
 } else if (country_code == "NO") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "ST"),]
 } else {
@@ -347,7 +350,10 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
       labels = scales::percent_format()
     )
   ) +
-  scale_x_date(name = "Time") +
+  scale_x_date(
+    name = "Time"
+    # , limits = as.Date(c("1945-01-01", "2025-12-31"))
+  ) +
   scale_color_manual(
     values = c("Daily Women %" = "red", "Total MPs" = "blue", "Parliament Size Baseline" = "black", "Election-Only Trend" = "green"),
     name = "Measures"
