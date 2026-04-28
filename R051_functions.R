@@ -144,6 +144,100 @@ find_new_cohort_day <- function(parliament_id, RESE, PARL) {
   peak_date
 }
 
+###############################################################################
+# Function: count_fresh_entrants
+# Description:
+#   Count MPs of a given gender who are in parliament on target_day but were
+#   NOT in parliament the day before. These are "fresh" entrants regardless
+#   of whether they served in a previous parliament.
+#
+# Inputs:
+#   - target_day: Date to check
+#   - gender_episodes: data.table with res_entry_start_dateformat,
+#     res_entry_end_dateformat, pers_id (already filtered to one gender)
+#
+# Returns:
+#   Integer count of fresh entrants.
+###############################################################################
+count_fresh_entrants <- function(target_day, gender_episodes) {
+  if (is.na(target_day)) return(NA_integer_)
+  day_before <- target_day - 1
+
+  on_today <- gender_episodes[res_entry_start_dateformat <= target_day &
+                               res_entry_end_dateformat >= target_day, pers_id]
+  on_yesterday <- gender_episodes[res_entry_start_dateformat <= day_before &
+                                   res_entry_end_dateformat >= day_before, pers_id]
+
+  length(setdiff(on_today, on_yesterday))
+}
+
+###############################################################################
+# Function: count_midterm_attrition
+# Description:
+#   Count MPs of a given gender who were seated the day after this_cohort_day
+#   but were no longer seated the day before next_cohort_day. These are
+#   genuine between-election dropouts (deaths, resignations, appointments),
+#   not MPs whose terms ended at dissolution.
+#
+# Inputs:
+#   - this_cohort_day: Date of the current election's cohort change day
+#   - next_cohort_day: Date of the next election's cohort change day
+#   - gender_episodes: data.table with res_entry_start_dateformat,
+#     res_entry_end_dateformat, pers_id (already filtered to one gender)
+#
+# Returns:
+#   Integer count of mid-term dropouts. NA if either date is NA.
+###############################################################################
+count_midterm_attrition <- function(this_cohort_day, next_cohort_day, gender_episodes) {
+  if (is.na(this_cohort_day) || is.na(next_cohort_day)) return(NA_integer_)
+
+  after_day <- this_cohort_day + 1
+  before_next <- next_cohort_day - 1
+
+  # Who was seated right after this election?
+  seated_after <- gender_episodes[res_entry_start_dateformat <= after_day &
+                                   res_entry_end_dateformat >= after_day, pers_id]
+  # Who was still seated right before the next election?
+  seated_before_next <- gender_episodes[res_entry_start_dateformat <= before_next &
+                                         res_entry_end_dateformat >= before_next, pers_id]
+
+  # Attrition = seated after this election but gone before the next
+  length(setdiff(seated_after, seated_before_next))
+}
+
+###############################################################################
+# Function: count_midterm_reinforcements
+# Description:
+#   Count MPs of a given gender who were NOT seated the day after this election
+#   but ARE seated the day before the next election. These are mid-term entrants
+#   (by-election winners, appointees replacing vacancies, etc.)
+#
+# Inputs:
+#   - this_cohort_day: Date of the current election's cohort change day
+#   - next_cohort_day: Date of the next election's cohort change day
+#   - gender_episodes: data.table with res_entry_start_dateformat,
+#     res_entry_end_dateformat, pers_id (already filtered to one gender)
+#
+# Returns:
+#   Integer count of mid-term entrants. NA if either date is NA.
+###############################################################################
+count_midterm_reinforcements <- function(this_cohort_day, next_cohort_day, gender_episodes) {
+  if (is.na(this_cohort_day) || is.na(next_cohort_day)) return(NA_integer_)
+
+  after_day <- this_cohort_day + 1
+  before_next <- next_cohort_day - 1
+
+  # Who was seated right after this election?
+  seated_after <- gender_episodes[res_entry_start_dateformat <= after_day &
+                                   res_entry_end_dateformat >= after_day, pers_id]
+  # Who was seated right before the next election?
+  seated_before_next <- gender_episodes[res_entry_start_dateformat <= before_next &
+                                         res_entry_end_dateformat >= before_next, pers_id]
+
+  # Reinforcements = seated before the next election but NOT after this one
+  length(setdiff(seated_before_next, seated_after))
+}
+
 # Helper function to grab % women at an offset relative to term start
 grab_pct_women <- function(ts, offset_days, daily = DAILY_COUNTS) {
   ts2 <- copy(ts)[, target_day := as.Date(term_start + as.integer(offset_days))]

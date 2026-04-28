@@ -4,7 +4,7 @@ library(sqldf); library(stringr); library(readr); library(dplyr); library(writex
 setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
-country_code <- "CA"  # Options: "CA" (Canada), "DE" (Germany), "NL" (Netherlands), "CH" (Switzerland), "NO" (Norway)
+country_code <- "CA"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway)
 country_name <- switch(
   country_code,
   "CA" = "Canada",
@@ -347,73 +347,99 @@ if (nrow(deviation_periods) > 0) {
   warning_labels <- data.table()
 }
 
-# Per-parliament transition analysis using data-driven cohort change days
-# "Entered on cohort day": entries on the new_cohort_day itself
-# "Left between elections": departures between the previous cohort day and this one
+# Per-parliament transition analysis
+parl_transitions <- as.data.frame(term_starts[, list(parliament_id, new_cohort_day)])
 
-parl_transitions <- do.call(rbind, lapply(seq_len(nrow(term_starts)), function(i) {
-  pid <- term_starts$parliament_id[i]
-  cohort_day <- term_starts$new_cohort_day[i]
+# Add MP counts on the cohort change day from DAILY_COUNTS
+parl_transitions <- merge(parl_transitions,
+  as.data.frame(DAILY_COUNTS[, list(thisday, pol_all, pol_f, pol_m)]),
+  by.x = "new_cohort_day", by.y = "thisday", all.x = TRUE)
+names(parl_transitions)[names(parl_transitions) == "pol_all"] <- "seated_total"
+names(parl_transitions)[names(parl_transitions) == "pol_f"] <- "seated_f"
+names(parl_transitions)[names(parl_transitions) == "pol_m"] <- "seated_m"
 
-  if (is.na(cohort_day)) {
-    return(data.frame(
-      parliament_id = pid, new_cohort_day = as.Date(NA),
-      entered_f = NA_integer_, entered_m = NA_integer_, entered_total = NA_integer_,
-      pct_entered_f = NA_real_,
-      left_between_f = NA_integer_, left_between_m = NA_integer_,
-      seated_f = NA_integer_, seated_m = NA_integer_,
-      attrition_rate_f = NA_real_, attrition_rate_m = NA_real_,
-      stringsAsFactors = FALSE
-    ))
-  }
+# Count fresh entrants on the cohort day (functions from R051_functions.R)
+parl_transitions$entered_at_election_f <- sapply(parl_transitions$new_cohort_day,
+  count_fresh_entrants, gender_episodes = RESEBU_FEMALE)
 
-  # "Entered on cohort day": entries on the cohort change day
-  entered_f <- count_mp_transitions(cohort_day, cohort_day, "entered", "f", country_code, RESE, POLI)
-  entered_m <- count_mp_transitions(cohort_day, cohort_day, "entered", "m", country_code, RESE, POLI)
+parl_transitions$entered_at_election_m <- sapply(parl_transitions$new_cohort_day,
+  count_fresh_entrants, gender_episodes = RESEBU_MALE)
 
-  # "Left between elections": departures between previous cohort day and this one
-  if (i > 1 && !is.na(term_starts$new_cohort_day[i - 1])) {
-    prev_cohort <- term_starts$new_cohort_day[i - 1]
-    between_from <- prev_cohort + 1
-    between_to <- cohort_day - 1
-    if (between_from <= between_to) {
-      left_f <- count_mp_transitions(between_from, between_to, "left", "f", country_code, RESE, POLI)
-      left_m <- count_mp_transitions(between_from, between_to, "left", "m", country_code, RESE, POLI)
+parl_transitions$entered_at_election_total = parl_transitions$entered_at_election_f + parl_transitions$entered_at_election_m
 
-      # Denominator: how many women/men were seated the day after the previous cohort day
-      seated_day <- DAILY_COUNTS[thisday == between_from]
-      seated_f <- if (nrow(seated_day) > 0) seated_day$pol_f else NA_integer_
-      seated_m <- if (nrow(seated_day) > 0) seated_day$pol_m else NA_integer_
-    } else {
-      left_f <- NA_integer_; left_m <- NA_integer_
-      seated_f <- NA_integer_; seated_m <- NA_integer_
-    }
-  } else {
-    left_f <- NA_integer_; left_m <- NA_integer_
-    seated_f <- NA_integer_; seated_m <- NA_integer_
-  }
+# Count mid-term attrition: seated after this election but gone before the next
+next_cohort_days <- c(parl_transitions$new_cohort_day[-1], NA)
 
-  data.frame(
-    parliament_id = pid,
-    new_cohort_day = cohort_day,
-    entered_f = entered_f,
-    entered_m = entered_m,
-    entered_total = entered_f + entered_m,
-    pct_entered_f = round(100 * entered_f / max(entered_f + entered_m, 1), 1),
-    left_between_f = left_f,
-    left_between_m = left_m,
-    seated_f = seated_f,
-    seated_m = seated_m,
-    attrition_rate_f = ifelse(is.na(left_f) | is.na(seated_f) | seated_f == 0,
-                              NA_real_, round(100 * left_f / seated_f, 1)),
-    attrition_rate_m = ifelse(is.na(left_m) | is.na(seated_m) | seated_m == 0,
-                              NA_real_, round(100 * left_m / seated_m, 1)),
-    stringsAsFactors = FALSE
-  )
-}))
+parl_transitions$attrition_f <- mapply(count_midterm_attrition,
+  parl_transitions$new_cohort_day, next_cohort_days,
+  MoreArgs = list(gender_episodes = RESEBU_FEMALE))
 
-cat("\n=== Per-Parliament Transition Analysis (cohort-day based) ===\n")
-print(as.data.frame(parl_transitions))
+parl_transitions$attrition_m <- mapply(count_midterm_attrition,
+  parl_transitions$new_cohort_day, next_cohort_days,
+  MoreArgs = list(gender_episodes = RESEBU_MALE))
+
+parl_transitions$attrition_total = parl_transitions$attrition_f + parl_transitions$attrition_m
+
+# Gender-specific attrition rate: what % of women/men seated at the start left mid-term
+# e.g. 98 women seated, 1 left → 1.0%; NA when no one of that gender was seated
+parl_transitions$attrition_pct_f <- ifelse(
+  is.na(parl_transitions$attrition_f) | parl_transitions$seated_f == 0,
+  NA_real_,
+  round(100 * parl_transitions$attrition_f / parl_transitions$seated_f, 1))
+
+parl_transitions$attrition_pct_m <- ifelse(
+  is.na(parl_transitions$attrition_m) | parl_transitions$seated_m == 0,
+  NA_real_,
+  round(100 * parl_transitions$attrition_m / parl_transitions$seated_m, 1))
+
+# Count mid-term reinforcements: MPs who were NOT seated after this election
+# but ARE seated before the next election (e.g. by-election winners, etc.)
+parl_transitions$reinforcements_f <- mapply(count_midterm_reinforcements,
+  parl_transitions$new_cohort_day, next_cohort_days,
+  MoreArgs = list(gender_episodes = RESEBU_FEMALE))
+
+parl_transitions$reinforcements_m <- mapply(count_midterm_reinforcements,
+  parl_transitions$new_cohort_day, next_cohort_days,
+  MoreArgs = list(gender_episodes = RESEBU_MALE))
+
+parl_transitions$reinforcements_total = parl_transitions$reinforcements_f + parl_transitions$reinforcements_m
+
+# Check: does every mid-term departure get replaced?
+# attrition - reinforcements should equal the drop in parliament size between
+# cohort_day+1 and next_cohort_day-1 (unfilled vacancies near end of term)
+parl_transitions$unfilled_vacancies <- ifelse(
+  is.na(parl_transitions$attrition_total) | is.na(parl_transitions$reinforcements_total),
+  NA_integer_,
+  parl_transitions$attrition_total - parl_transitions$reinforcements_total)
+
+# Reinforcement bias: are by-elections disproportionately replacing with women?
+# Compares the female share of reinforcements to the female share of seated MPs.
+# Positive = by-elections favored women beyond their existing representation.
+# Zero = neutral (replacements mirror existing composition).
+# Negative = by-elections disfavored women.
+parl_transitions$reinforcement_bias_f <- ifelse(
+  is.na(parl_transitions$reinforcements_total) | parl_transitions$reinforcements_total == 0 |
+  is.na(parl_transitions$seated_total) | parl_transitions$seated_total == 0,
+  NA_real_,
+  round(
+    100 * parl_transitions$reinforcements_f / parl_transitions$reinforcements_total -
+    100 * parl_transitions$seated_f / parl_transitions$seated_total,
+  1))
+
+print(parl_transitions)
+
+# Summary statistics for graph annotation
+avg_attrition_f <- round(mean(parl_transitions$attrition_pct_f, na.rm = TRUE), 1)
+avg_attrition_m <- round(mean(parl_transitions$attrition_pct_m, na.rm = TRUE), 1)
+avg_reinforcement_bias_f <- round(mean(parl_transitions$reinforcement_bias_f, na.rm = TRUE), 1)
+
+summary_text <- sprintf(
+  "Avg. mid-term attrition rate:\n  Women: %.1f%%   Men: %.1f%%\nAvg. reinforcement bias (women): %.1f%%\n  (%% women among replacements minus\n   %% women seated at start of term;\n   positive = mid-term replacements favor women)",
+  avg_attrition_f, avg_attrition_m, avg_reinforcement_bias_f
+)
+cat("\n", summary_text, "\n")
+
+mean(parl_transitions$reinforcement_bias_f,na.rm=TRUE)
 
 # Create a triple-line plot
 p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
@@ -449,6 +475,12 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
                fill = "white", alpha = 0.8,
                hjust = 0.5, vjust = 0.5)
    else NULL} +
+  # Add summary statistics in top-left corner
+  annotate("label", x = min(DAILY_COUNTS$thisday), y = 0.95,
+           label = summary_text, hjust = 0, vjust = 1,
+           size = 3.5, family = "mono",
+           fill = "white", alpha = 0.85,
+           label.size = 0.3) +
   scale_y_continuous(
     name = "Total Number of MPs",
     breaks = scales::pretty_breaks(n = 6),

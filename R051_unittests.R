@@ -694,3 +694,169 @@ test_that("handles rcen markers in dates", {
   )
   expect_equal(result2, 1L)
 })
+
+# ==================================================================
+# Block: count_fresh_entrants()
+# ==================================================================
+
+# Helper: build a minimal gender_episodes data.table for testing
+mk_gender_episodes <- function(pers_ids, starts, ends) {
+  data.table(
+    pers_id = pers_ids,
+    res_entry_start_dateformat = as.Date(starts),
+    res_entry_end_dateformat = as.Date(ends)
+  )
+}
+
+test_that("count_fresh_entrants counts MPs present today but not yesterday", {
+  eps <- mk_gender_episodes(
+    c("A", "B", "C"),
+    c("2019-10-21", "2019-10-21", "2019-01-01"),  # A,B enter on 21st; C already there
+    c("2023-01-01", "2023-01-01", "2023-01-01")
+  )
+  result <- count_fresh_entrants(as.Date("2019-10-21"), eps)
+  expect_equal(result, 2L)  # A and B are new; C was already there yesterday
+})
+
+test_that("count_fresh_entrants returns 0 when no new entrants", {
+  eps <- mk_gender_episodes(
+    c("A", "B"),
+    c("2019-01-01", "2019-01-01"),
+    c("2023-01-01", "2023-01-01")
+  )
+  result <- count_fresh_entrants(as.Date("2019-06-15"), eps)
+  expect_equal(result, 0L)  # both were already there
+})
+
+test_that("count_fresh_entrants returns NA for NA date", {
+  eps <- mk_gender_episodes("A", "2019-01-01", "2023-01-01")
+  result <- count_fresh_entrants(as.Date(NA), eps)
+  expect_true(is.na(result))
+})
+
+test_that("count_fresh_entrants counts returning MP as fresh if gap in service", {
+  # MP served 2015-2019, left, returned 2021
+  eps <- mk_gender_episodes(
+    c("A", "A"),
+    c("2015-01-01", "2021-09-20"),
+    c("2019-10-20", "2025-04-27")
+  )
+  result <- count_fresh_entrants(as.Date("2021-09-20"), eps)
+  expect_equal(result, 1L)  # A is back but wasn't there yesterday
+})
+
+test_that("count_fresh_entrants does not double-count same person with overlapping episodes", {
+  # Same person with two episodes both covering today
+  eps <- mk_gender_episodes(
+    c("A", "A"),
+    c("2019-10-21", "2019-10-21"),
+    c("2023-01-01", "2023-06-01")
+  )
+  result <- count_fresh_entrants(as.Date("2019-10-21"), eps)
+  expect_equal(result, 1L)  # unique persons, not episodes
+})
+
+# ==================================================================
+# Block: count_midterm_attrition()
+# ==================================================================
+
+test_that("count_midterm_attrition counts MPs who left between elections", {
+  eps <- mk_gender_episodes(
+    c("A", "B", "C"),
+    c("2019-10-22", "2019-10-22", "2019-10-22"),
+    c("2021-03-15", "2023-09-19", "2023-09-19")  # A leaves mid-term, B and C stay
+  )
+  result <- count_midterm_attrition(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
+  expect_equal(result, 1L)  # only A dropped out
+})
+
+test_that("count_midterm_attrition returns 0 when nobody leaves", {
+  eps <- mk_gender_episodes(
+    c("A", "B"),
+    c("2019-10-22", "2019-10-22"),
+    c("2023-09-19", "2023-09-19")  # both stay until the day before next election
+  )
+  result <- count_midterm_attrition(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
+  expect_equal(result, 0L)
+})
+
+test_that("count_midterm_attrition returns NA when dates are NA", {
+  eps <- mk_gender_episodes("A", "2019-10-22", "2023-01-01")
+  expect_true(is.na(count_midterm_attrition(as.Date(NA), as.Date("2023-09-20"), eps)))
+  expect_true(is.na(count_midterm_attrition(as.Date("2019-10-21"), as.Date(NA), eps)))
+})
+
+test_that("count_midterm_attrition excludes MPs who left on election day boundary", {
+  # MP's episode ends on the day before the next election (dissolution)
+  # This is NOT attrition — it's a normal end of term
+  eps <- mk_gender_episodes(
+    c("A", "B"),
+    c("2019-10-22", "2019-10-22"),
+    c("2023-09-19", "2022-06-15")  # A stays to end, B leaves mid-term
+  )
+  result <- count_midterm_attrition(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
+  expect_equal(result, 1L)  # only B is attrition; A served the full term
+})
+
+test_that("count_midterm_attrition works with data.table input", {
+  eps <- mk_gender_episodes(
+    c("A", "B", "C"),
+    c("2019-10-22", "2019-10-22", "2019-10-22"),
+    c("2020-06-01", "2023-09-19", "2023-09-19")
+  )
+  setDT(eps)
+  result <- count_midterm_attrition(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
+  expect_equal(result, 1L)
+})
+
+# ==================================================================
+# Block: count_midterm_reinforcements()
+# ==================================================================
+
+test_that("count_midterm_reinforcements counts MPs who entered mid-term", {
+  eps <- mk_gender_episodes(
+    c("A", "B", "C"),
+    c("2019-10-22", "2021-03-15", "2019-10-22"),  # B enters mid-term
+    c("2023-09-19", "2023-09-19", "2023-09-19")
+  )
+  result <- count_midterm_reinforcements(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
+  expect_equal(result, 1L)  # only B is a mid-term entrant
+})
+
+test_that("count_midterm_reinforcements returns 0 when no mid-term entries", {
+  eps <- mk_gender_episodes(
+    c("A", "B"),
+    c("2019-10-22", "2019-10-22"),
+    c("2023-09-19", "2023-09-19")
+  )
+  result <- count_midterm_reinforcements(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
+  expect_equal(result, 0L)
+})
+
+test_that("count_midterm_reinforcements returns NA when dates are NA", {
+  eps <- mk_gender_episodes("A", "2021-03-15", "2023-09-19")
+  expect_true(is.na(count_midterm_reinforcements(as.Date(NA), as.Date("2023-09-20"), eps)))
+  expect_true(is.na(count_midterm_reinforcements(as.Date("2019-10-21"), as.Date(NA), eps)))
+})
+
+test_that("count_midterm_reinforcements excludes MPs who entered and left mid-term", {
+  # D enters mid-term but leaves before the next election — not a reinforcement
+  eps <- mk_gender_episodes(
+    c("A", "D"),
+    c("2019-10-22", "2021-03-15"),
+    c("2023-09-19", "2022-06-01")  # D leaves before next election
+  )
+  result <- count_midterm_reinforcements(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
+  expect_equal(result, 0L)  # D isn't there before the next election
+})
+
+test_that("count_midterm_reinforcements works with data.table input", {
+  eps <- mk_gender_episodes(
+    c("A", "B"),
+    c("2019-10-22", "2021-06-01"),
+    c("2023-09-19", "2023-09-19")
+  )
+  setDT(eps)
+  result <- count_midterm_reinforcements(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
+  expect_equal(result, 1L)
+})
