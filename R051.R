@@ -204,46 +204,88 @@ if(any(is.na(parl_starts))) {
 
 parl_starts <- sort(parl_starts)
 
-# Calculate fictional "election-only" fluctuations
-# Parameter: how many days before/after elections to measure
-n_days <- 80  # change to any integer you like
+# =============================================================================
+# Calculate "election-only" fluctuations using data-driven cohort change days
+#
+# Goal: build the green "Election-Only Trend" line in the graph. This line
+# shows what women's representation would look like if only election-related
+# changes mattered (ignoring mid-term resignations, deaths, by-elections).
+#
+# Approach:
+#   1. For each parliament, find the "cohort change day" — the single day with
+#      the most MP entries + departures. This is data-driven (no n_days window).
+#   2. Measure % women the day before and day after the cohort change day.
+#   3. The difference is the "election jump" — the change attributable to that
+#      election.
+#   4. Accumulate these jumps to build a running total (the green step line).
+# =============================================================================
 
-# Get unique parliament start dates with their IDs
+# Convert to data.table for efficient querying
 setDT(PARL)
 setDT(DAILY_COUNTS)
+
+# Step 1: For each parliament, find the day with the most MP turnover.
+# find_new_cohort_day() searches a window around each parliament (midpoint of
+# previous term to midpoint of next term) and returns the peak-turnover date.
 term_starts <- unique(PARL[, .(parliament_id, term_start = as.Date(leg_period_start_dateformat))])
+term_starts[, new_cohort_day := as.Date(sapply(parliament_id, function(pid) {
+  find_new_cohort_day(pid, RESE, PARL)
+}), origin = "1970-01-01")]
 
-# Functions loaded from R051_functions.R
+cat("\n=== Cohort change days ===\n")
+print(as.data.frame(term_starts))
 
-# Get percentage before and after elections
-BEFORE <- grab_pct_women(term_starts, -n_days)
-setnames(BEFORE, "pct_women", "pct_women_before_election")
+# Step 2a: Get % women on the day BEFORE each cohort change day.
+# This represents the composition of the outgoing parliament, just before
+# the election turnover happens.
+BEFORE <- term_starts[!is.na(new_cohort_day), .(
+  parliament_id, term_start, new_cohort_day,
+  target_day = new_cohort_day - 1
+)]
+BEFORE <- merge(BEFORE, DAILY_COUNTS[, .(thisday, pol_all, pol_f, proportion_female)],
+                by.x = "target_day", by.y = "thisday", all.x = TRUE)
+BEFORE[, pct_before := round(proportion_female * 100, 3)]
 
-AFTER <- grab_pct_women(term_starts, n_days)
-setnames(AFTER, "pct_women", "pct_women_after_election")
+# Step 2b: Get % women on the day AFTER each cohort change day.
+# This represents the composition of the incoming parliament, just after
+# the election turnover has settled.
+AFTER <- term_starts[!is.na(new_cohort_day), .(
+  parliament_id, new_cohort_day,
+  target_day = new_cohort_day + 1
+)]
+AFTER <- merge(AFTER, DAILY_COUNTS[, .(thisday, pol_all, pol_f, proportion_female)],
+               by.x = "target_day", by.y = "thisday", all.x = TRUE)
+AFTER[, pct_after := round(proportion_female * 100, 3)]
 
-# Calculate election jumps
+# Step 3: Calculate the "election jump" for each parliament.
+# election_jumps = pct_after - pct_before: how much did this election change
+# the proportion of women? Positive = more women after, negative = fewer.
 DELTA <- merge(
-  BEFORE[, .(parliament_id, term_start, pct_before = pct_women_before_election)],
-  AFTER[, .(parliament_id, pct_after = pct_women_after_election)],
+  BEFORE[, .(parliament_id, term_start, new_cohort_day, pct_before)],
+  AFTER[, .(parliament_id, pct_after)],
   by = "parliament_id"
 )[order(term_start)][
   , election_jumps := round(pct_after - pct_before, 3)][]
 
-# Safety check
+# Safety check: each parliament should appear exactly once
 if(!nrow(DELTA) == length(unique(DELTA$parliament_id))) {
   stop("ERROR: Non-unique parliament_ids in DELTA - data integrity issue")
 }
 
-# Calculate running average with election fluctuations only
-# Handle the first election which may have NA before value
-startpercentage <- DELTA$pct_after[1]  # Use first "after" value as starting point
+# Step 4: Build the running total (the green step line).
+# Start from the first parliament's "after" percentage, then add each
+# subsequent election jump. This shows the cumulative effect of elections
+# on women's representation, stripping out all mid-term noise.
+# Use the first non-NA pct_after as starting point (the first parliament's
+# cohort day may fall before DAILY_COUNTS begins, giving NA)
+startpercentage <- DELTA$pct_after[which(!is.na(DELTA$pct_after))[1]]
 
-# Replace NA election_jumps with 0 for cumsum
+# Replace NA election_jumps with 0 so cumsum works (NA would propagate)
 election_jumps_clean <- DELTA$election_jumps
 election_jumps_clean[is.na(election_jumps_clean)] <- 0
 
 DELTA$running_average_election_only <- startpercentage + cumsum(election_jumps_clean)
+tail(DELTA)
 
 # Create year labels for parliament starts
 parl_years <- data.frame(
@@ -305,64 +347,55 @@ if (nrow(deviation_periods) > 0) {
   warning_labels <- data.table()
 }
 
-# Per-parliament transition analysis (FIRST ATTEMPT — needs rethinking)
-# For each parliament: who entered at this election, and who left mid-term
-# during the preceding parliament? Broken down by gender.
-#
-# KNOWN CONCERNS:
-# - The n_days window around session start is a blunt instrument. It conflates
-#   the election period with whatever happens in the weeks before/after, and
-#   for countries like Canada where the election-to-session gap varies (30-140
-#   days), the window either misses the actual turnover or captures unrelated
-#   mid-term changes.
-# - The "between elections" period is defined as the gap between two n_days
-#   windows, so its boundaries shift with n_days. This makes the attrition
-#   rates sensitive to a parameter choice that should ideally not matter.
+# Per-parliament transition analysis using data-driven cohort change days
+# "Entered on cohort day": entries on the new_cohort_day itself
+# "Left between elections": departures between the previous cohort day and this one
 
-# Build the data frame: one row per parliament
-parl_transitions <- do.call(rbind, lapply(seq_along(parl_starts), function(i) {
-  ps <- parl_starts[i]
+parl_transitions <- do.call(rbind, lapply(seq_len(nrow(term_starts)), function(i) {
+  pid <- term_starts$parliament_id[i]
+  cohort_day <- term_starts$new_cohort_day[i]
 
-  # "Entered at election": entries within n_days window around this session start
-  elec_from <- as.Date(ps) - n_days
-  elec_to <- as.Date(ps) + n_days
+  if (is.na(cohort_day)) {
+    return(data.frame(
+      parliament_id = pid, new_cohort_day = as.Date(NA),
+      entered_f = NA_integer_, entered_m = NA_integer_, entered_total = NA_integer_,
+      pct_entered_f = NA_real_,
+      left_between_f = NA_integer_, left_between_m = NA_integer_,
+      seated_f = NA_integer_, seated_m = NA_integer_,
+      attrition_rate_f = NA_real_, attrition_rate_m = NA_real_,
+      stringsAsFactors = FALSE
+    ))
+  }
 
-  entered_f <- count_mp_transitions(elec_from, elec_to, "entered", "f", country_code, RESE, POLI)
-  entered_m <- count_mp_transitions(elec_from, elec_to, "entered", "m", country_code, RESE, POLI)
+  # "Entered on cohort day": entries on the cohort change day
+  entered_f <- count_mp_transitions(cohort_day, cohort_day, "entered", "f", country_code, RESE, POLI)
+  entered_m <- count_mp_transitions(cohort_day, cohort_day, "entered", "m", country_code, RESE, POLI)
 
-  # "Left between elections": departures between the previous election window
-  # and this election window (mid-term attrition during the preceding parliament)
-  # Attrition rate = who left / who was there at the start of the between period
-  if (i > 1) {
-    prev_ps <- parl_starts[i - 1]
-    between_from <- as.Date(prev_ps) + n_days + 1
-    between_to <- as.Date(ps) - n_days - 1
+  # "Left between elections": departures between previous cohort day and this one
+  if (i > 1 && !is.na(term_starts$new_cohort_day[i - 1])) {
+    prev_cohort <- term_starts$new_cohort_day[i - 1]
+    between_from <- prev_cohort + 1
+    between_to <- cohort_day - 1
     if (between_from <= between_to) {
       left_f <- count_mp_transitions(between_from, between_to, "left", "f", country_code, RESE, POLI)
       left_m <- count_mp_transitions(between_from, between_to, "left", "m", country_code, RESE, POLI)
 
-      # Denominator: how many women/men were seated on the first day of the between period
+      # Denominator: how many women/men were seated the day after the previous cohort day
       seated_day <- DAILY_COUNTS[thisday == between_from]
       seated_f <- if (nrow(seated_day) > 0) seated_day$pol_f else NA_integer_
       seated_m <- if (nrow(seated_day) > 0) seated_day$pol_m else NA_integer_
     } else {
-      # Election windows overlap (very short parliament) — no between period
-      left_f <- NA_integer_
-      left_m <- NA_integer_
-      seated_f <- NA_integer_
-      seated_m <- NA_integer_
+      left_f <- NA_integer_; left_m <- NA_integer_
+      seated_f <- NA_integer_; seated_m <- NA_integer_
     }
   } else {
-    # First parliament: no preceding period
-    left_f <- NA_integer_
-    left_m <- NA_integer_
-    seated_f <- NA_integer_
-    seated_m <- NA_integer_
+    left_f <- NA_integer_; left_m <- NA_integer_
+    seated_f <- NA_integer_; seated_m <- NA_integer_
   }
 
   data.frame(
-    parliament_id = PARL$parliament_id[match(ps, PARL$leg_period_start_dateformat)],
-    session_start = ps,
+    parliament_id = pid,
+    new_cohort_day = cohort_day,
     entered_f = entered_f,
     entered_m = entered_m,
     entered_total = entered_f + entered_m,
@@ -371,8 +404,6 @@ parl_transitions <- do.call(rbind, lapply(seq_along(parl_starts), function(i) {
     left_between_m = left_m,
     seated_f = seated_f,
     seated_m = seated_m,
-    # Attrition rate: what % of women/men who started the term left mid-term
-    # NA when no one of that gender was seated (denominator = 0)
     attrition_rate_f = ifelse(is.na(left_f) | is.na(seated_f) | seated_f == 0,
                               NA_real_, round(100 * left_f / seated_f, 1)),
     attrition_rate_m = ifelse(is.na(left_m) | is.na(seated_m) | seated_m == 0,
@@ -381,7 +412,7 @@ parl_transitions <- do.call(rbind, lapply(seq_along(parl_starts), function(i) {
   )
 }))
 
-cat("\n=== Per-Parliament Transition Analysis (n_days =", n_days, ") ===\n")
+cat("\n=== Per-Parliament Transition Analysis (cohort-day based) ===\n")
 print(as.data.frame(parl_transitions))
 
 # Create a triple-line plot
@@ -400,9 +431,9 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
                 color = "Parliament Size Baseline"), 
             linewidth = 1.0) +
   geom_line(aes(y = proportion_female, color = "Daily Women %"), linewidth = 0.8) +
-  geom_step(data = DELTA, 
-            aes(x = term_start, y = running_average_election_only / 100, 
-                color = "Election-Only Trend"), 
+  geom_step(data = DELTA,
+            aes(x = new_cohort_day, y = running_average_election_only / 100,
+                color = "Election-Only Trend"),
             linewidth = 1.0) +
   # Add red highlighting for deviation periods (thicker and more visible)
   {if (nrow(deviation_segments) > 0) 

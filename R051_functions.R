@@ -76,6 +76,74 @@ count_mp_transitions <- function(from_date, to_date, direction, gender,
   length(unique(matches$pers_id))
 }
 
+###############################################################################
+# Function: find_new_cohort_day
+# Description:
+#   For a given parliament, find the day with the largest sum of MP entries
+#   and departures. This is the data-driven "cohort change day" — typically
+#   election day or the day the new parliament is seated, depending on how
+#   the source data records episode boundaries.
+#
+# Inputs:
+#   - parliament_id: e.g. "CA_NT-HC_2019"
+#   - RESE: raw RESE data.frame (country-filtered, parliamentary functions only)
+#   - PARL: raw PARL data.frame (with leg_period_start/end_dateformat columns)
+#
+# Returns:
+#   A Date: the day with the highest turnover within the parliament's term.
+#   NA if no transitions found.
+###############################################################################
+find_new_cohort_day <- function(parliament_id, RESE, PARL) {
+  # Look up parliament start and end dates
+  # Convert to data.frame to avoid data.table scoping issues
+  # (data.table's [.data.table evaluates parliament_id as the column, not the argument)
+  parl_df <- as.data.frame(PARL)
+  parl_df <- parl_df[order(parl_df$leg_period_start_dateformat), ]
+  parl_idx <- which(parl_df$parliament_id == parliament_id)
+  if (length(parl_idx) == 0) {
+    warning("parliament_id '", parliament_id, "' not found in PARL")
+    return(as.Date(NA))
+  }
+
+  # Search window: from midpoint of previous parliament to midpoint of this one.
+  # This ensures the election day (which falls between parliament end and session
+  # start) is always captured, regardless of the gap size.
+  term_start <- parl_df$leg_period_start_dateformat[parl_idx]
+  term_end <- parl_df$leg_period_end_dateformat[parl_idx]
+  if (is.na(term_end)) term_end <- Sys.Date()
+
+  if (parl_idx > 1) {
+    prev_start <- parl_df$leg_period_start_dateformat[parl_idx - 1]
+    search_from <- prev_start + as.integer(difftime(term_start, prev_start, units = "days")) / 2
+  } else {
+    search_from <- term_start - 180  # first parliament: look 6 months before
+  }
+
+  if (parl_idx < nrow(parl_df)) {
+    next_start <- parl_df$leg_period_start_dateformat[parl_idx + 1]
+    search_to <- term_start + as.integer(difftime(next_start, term_start, units = "days")) / 2
+  } else {
+    search_to <- term_end  # last parliament: search to end of term
+  }
+
+  # Parse RESE dates (strip censoring markers)
+  starts <- as.Date(gsub("\\[\\[.*\\]\\]", "", RESE$res_entry_start), format = "%d%b%Y")
+  ends <- as.Date(gsub("\\[\\[.*\\]\\]", "", RESE$res_entry_end), format = "%d%b%Y")
+
+  # Collect all entry and departure dates within the search window
+  entry_dates <- starts[!is.na(starts) & starts >= search_from & starts <= search_to]
+  exit_dates <- ends[!is.na(ends) & ends >= search_from & ends <= search_to]
+
+  all_transition_dates <- c(entry_dates, exit_dates)
+  if (length(all_transition_dates) == 0) return(as.Date(NA))
+
+  # Find the date with the highest frequency of transitions
+  date_counts <- table(all_transition_dates)
+  peak_date <- as.Date(names(which.max(date_counts)))
+
+  peak_date
+}
+
 # Helper function to grab % women at an offset relative to term start
 grab_pct_women <- function(ts, offset_days, daily = DAILY_COUNTS) {
   ts2 <- copy(ts)[, target_day := as.Date(term_start + as.integer(offset_days))]

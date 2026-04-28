@@ -398,6 +398,122 @@ test_that("detect_parliament_deviations updates merged period statistics correct
 })
 
 # ==================================================================
+# Block: find_new_cohort_day()
+# ==================================================================
+
+# Helper to build minimal PARL for find_new_cohort_day tests
+mk_test_parl_cohort <- function(parliament_id, start, end) {
+  data.frame(
+    parliament_id = parliament_id,
+    leg_period_start_dateformat = as.Date(start),
+    leg_period_end_dateformat = as.Date(end),
+    stringsAsFactors = FALSE
+  )
+}
+
+# Helper to build minimal RESE for find_new_cohort_day tests
+mk_test_rese_cohort <- function(starts, ends) {
+  data.frame(
+    res_entry_start = starts,
+    res_entry_end = ends,
+    stringsAsFactors = FALSE
+  )
+}
+
+test_that("find_new_cohort_day returns the day with most transitions", {
+  # Two consecutive parliaments so the midpoint search window works
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  )
+  # 5 entries on 2019-10-21, 3 exits on 2019-10-20, 1 entry on 2020-03-01
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("21oct2019", 5), "01mar2020"),
+    ends   = c(rep("20oct2019", 3), rep("01jan2023", 3))
+  )
+  result <- find_new_cohort_day("P1", RESE, PARL)
+  expect_equal(result, as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day picks the peak when entries and exits are on same day", {
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  )
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("21oct2019", 5), rep("01jan2019", 4)),
+    ends   = c(rep("21oct2019", 4), rep("01jan2023", 5))
+  )
+  result <- find_new_cohort_day("P1", RESE, PARL)
+  expect_equal(result, as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day returns NA when no transitions in search window", {
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2010-01-01", "2014-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  )
+  # All dates well outside the search window
+  RESE <- mk_test_rese_cohort(
+    starts = c("01jan2000"),
+    ends   = c("01jan2005")
+  )
+  result <- find_new_cohort_day("P1", RESE, PARL)
+  expect_true(is.na(result))
+})
+
+test_that("find_new_cohort_day warns on unknown parliament_id", {
+  PARL <- mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  RESE <- mk_test_rese_cohort("21oct2019", "01jan2023")
+  expect_warning(find_new_cohort_day("UNKNOWN", RESE, PARL), "not found")
+})
+
+test_that("find_new_cohort_day handles rcen markers in dates", {
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2026-12-31")
+  )
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("21oct2019", 5)),
+    ends   = c(rep("10mar2026[[rcen]]", 5))
+  )
+  result <- find_new_cohort_day("P1", RESE, PARL)
+  expect_equal(result, as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day works when PARL is a data.table", {
+  # This test catches the scoping bug where data.table's [.data.table
+  # evaluates parliament_id as the column name instead of the function argument
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  )
+  setDT(PARL)  # convert to data.table — this is what R051.R does
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("21oct2019", 5)),
+    ends   = c(rep("01jan2023", 5))
+  )
+  result <- find_new_cohort_day("P1", RESE, PARL)
+  expect_equal(result, as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day finds election day before session start", {
+  # Simulates the Canada pattern: election Oct 21, session starts Dec 5
+  # The function should find the election day, not a mid-term date
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-12-03", "2019-09-11"),
+    mk_test_parl_cohort("P1", "2019-12-05", "2021-08-15")
+  )
+  # Election turnover happens on Oct 21 (before session start Dec 5)
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("21oct2019", 200), "15jan2020"),
+    ends   = c(rep("20oct2019", 180), rep("15aug2021", 21))
+  )
+  result <- find_new_cohort_day("P1", RESE, PARL)
+  expect_equal(result, as.Date("2019-10-21"))
+})
+
+# ==================================================================
 # Block: count_mp_transitions()
 # ==================================================================
 
