@@ -396,3 +396,185 @@ test_that("detect_parliament_deviations updates merged period statistics correct
   expect_equal(result$avg_deviation, -11.7) # Weighted average: (-10*90 + -15*90)/(90+2+90)
   expect_equal(result$max_deviation, 15) # Maximum absolute deviation
 })
+
+# ==================================================================
+# Block: count_mp_transitions()
+# ==================================================================
+
+# Helper to build minimal test data for count_mp_transitions
+mk_test_rese <- function(pers_ids, starts, ends,
+                          country = "CA",
+                          pf = "NT_LE-LH_T3_NA_01") {
+  data.frame(
+    pers_id = pers_ids,
+    res_entry_start = starts,
+    res_entry_end = ends,
+    country_abb = country,
+    political_function = pf,
+    stringsAsFactors = FALSE
+  )
+}
+
+mk_test_poli <- function(pers_ids, genders) {
+  data.frame(
+    pers_id = pers_ids,
+    gender = genders,
+    stringsAsFactors = FALSE
+  )
+}
+
+test_that("counts women entering in date window", {
+  RESE <- mk_test_rese(
+    c("P1", "P2", "P3"),
+    c("19oct2015", "21oct2019", "20sep2021"),
+    c("20oct2019", "19sep2021", "27apr2025")
+  )
+  POLI <- mk_test_poli(c("P1", "P2", "P3"), c("f", "f", "m"))
+
+  # P2 (female) entered in the 2019 window
+  result <- count_mp_transitions(
+    as.Date("2019-10-15"), as.Date("2019-10-25"),
+    "entered", "f", "CA", RESE, POLI
+  )
+  expect_equal(result, 1L)
+})
+
+test_that("counts men leaving in date window", {
+  RESE <- mk_test_rese(
+    c("P1", "P2", "P3"),
+    c("19oct2015", "21oct2019", "19oct2015"),
+    c("20oct2019", "27apr2025", "20oct2019")
+  )
+  POLI <- mk_test_poli(c("P1", "P2", "P3"), c("m", "f", "m"))
+
+  # P1 and P3 (both male) left around oct 2019
+  result <- count_mp_transitions(
+    as.Date("2019-10-15"), as.Date("2019-10-25"),
+    "left", "m", "CA", RESE, POLI
+  )
+  expect_equal(result, 2L)
+})
+
+test_that("returns 0 when no transitions in window", {
+  RESE <- mk_test_rese(
+    c("P1"),
+    c("19oct2015"),
+    c("20oct2019")
+  )
+  POLI <- mk_test_poli(c("P1"), c("f"))
+
+  result <- count_mp_transitions(
+    as.Date("2020-01-01"), as.Date("2020-12-31"),
+    "entered", "f", "CA", RESE, POLI
+  )
+  expect_equal(result, 0L)
+})
+
+test_that("returns 0 for wrong country", {
+  RESE <- mk_test_rese(
+    c("P1"),
+    c("19oct2015"),
+    c("20oct2019"),
+    country = "NO"
+  )
+  POLI <- mk_test_poli(c("P1"), c("f"))
+
+  result <- count_mp_transitions(
+    as.Date("2015-10-01"), as.Date("2015-10-31"),
+    "entered", "f", "CA", RESE, POLI
+  )
+  expect_equal(result, 0L)
+})
+
+test_that("handles tf/tm gender codes", {
+  RESE <- mk_test_rese(
+    c("P1", "P2"),
+    c("19oct2015", "19oct2015"),
+    c("20oct2019", "20oct2019")
+  )
+  POLI <- mk_test_poli(c("P1", "P2"), c("tf", "tm"))
+
+  expect_equal(count_mp_transitions(
+    as.Date("2015-10-01"), as.Date("2015-10-31"),
+    "entered", "f", "CA", RESE, POLI
+  ), 1L)
+
+  expect_equal(count_mp_transitions(
+    as.Date("2015-10-01"), as.Date("2015-10-31"),
+    "entered", "m", "CA", RESE, POLI
+  ), 1L)
+})
+
+test_that("filters to parliamentary membership functions only", {
+  RESE <- mk_test_rese(
+    c("P1", "P2"),
+    c("19oct2015", "19oct2015"),
+    c("20oct2019", "20oct2019"),
+    pf = c("NT_LE-LH_T3_NA_01", "EDUC_1234")
+  )
+  POLI <- mk_test_poli(c("P1", "P2"), c("f", "f"))
+
+  # Only P1 has a parliamentary function
+  result <- count_mp_transitions(
+    as.Date("2015-10-01"), as.Date("2015-10-31"),
+    "entered", "f", "CA", RESE, POLI
+  )
+  expect_equal(result, 1L)
+})
+
+test_that("counts unique persons not episodes", {
+  # Same person with two episodes both starting in the window
+  RESE <- mk_test_rese(
+    c("P1", "P1"),
+    c("19oct2015", "21oct2015"),
+    c("20oct2019", "20oct2019")
+  )
+  POLI <- mk_test_poli(c("P1"), c("f"))
+
+  result <- count_mp_transitions(
+    as.Date("2015-10-01"), as.Date("2015-10-31"),
+    "entered", "f", "CA", RESE, POLI
+  )
+  expect_equal(result, 1L)  # unique person, not 2 episodes
+})
+
+test_that("errors on invalid direction", {
+  RESE <- mk_test_rese("P1", "19oct2015", "20oct2019")
+  POLI <- mk_test_poli("P1", "f")
+  expect_error(count_mp_transitions(
+    as.Date("2015-10-01"), as.Date("2015-10-31"),
+    "stayed", "f", "CA", RESE, POLI
+  ), "direction")
+})
+
+test_that("errors on invalid gender", {
+  RESE <- mk_test_rese("P1", "19oct2015", "20oct2019")
+  POLI <- mk_test_poli("P1", "f")
+  expect_error(count_mp_transitions(
+    as.Date("2015-10-01"), as.Date("2015-10-31"),
+    "entered", "x", "CA", RESE, POLI
+  ), "gender")
+})
+
+test_that("handles rcen markers in dates", {
+  RESE <- mk_test_rese(
+    c("P1"),
+    c("19oct2015"),
+    c("10mar2026[[rcen]]")
+  )
+  POLI <- mk_test_poli(c("P1"), c("f"))
+
+  # Should still count the entry
+  result <- count_mp_transitions(
+    as.Date("2015-10-01"), as.Date("2015-10-31"),
+    "entered", "f", "CA", RESE, POLI
+  )
+  expect_equal(result, 1L)
+
+  # The end date with rcen should parse correctly
+  result2 <- count_mp_transitions(
+    as.Date("2026-03-01"), as.Date("2026-03-31"),
+    "left", "f", "CA", RESE, POLI
+  )
+  expect_equal(result2, 1L)
+})

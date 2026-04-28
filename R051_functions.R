@@ -1,6 +1,81 @@
 # R051 Custom Functions
 # Functions for parliament size analysis and data integrity checking
 
+###############################################################################
+# Function: count_mp_transitions
+# Description:
+#   Count how many MPs of a given gender entered or left parliament within a
+#   specified date window. Operates on raw RESE + POLI data — does its own
+#   filtering, gender join, and date parsing internally.
+#
+# Inputs:
+#   - from_date: Date, start of the window (inclusive)
+#   - to_date: Date, end of the window (inclusive)
+#   - direction: "entered" (episode start in window) or "left" (episode end)
+#   - gender: "f" or "m"
+#   - country_code: e.g. "CA", "NO", "DE"
+#   - RESE: raw RESE data.frame (as read from CSV)
+#   - POLI: raw POLI data.frame (as read from CSV)
+#
+# Returns:
+#   Integer count of unique persons matching the criteria.
+###############################################################################
+count_mp_transitions <- function(from_date, to_date, direction, gender,
+                                 country_code, RESE, POLI) {
+  if (!direction %in% c("entered", "left")) {
+    stop("direction must be 'entered' or 'left'")
+  }
+  if (!gender %in% c("f", "m")) {
+    stop("gender must be 'f' or 'm'")
+  }
+
+  # Filter to country and parliamentary membership functions
+  parl_functions <- c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09")
+  rese <- RESE[RESE$country_abb == country_code &
+               RESE$political_function %in% parl_functions, ]
+
+  if (nrow(rese) == 0) return(0L)
+
+  # Join gender from POLI
+  poli_gender <- POLI[, c("pers_id", "gender")]
+  rese <- merge(rese, poli_gender, by = "pers_id", all.x = TRUE)
+
+  # Clean gender (tf→f, tm→m)
+  rese$gender[rese$gender == "tf"] <- "f"
+  rese$gender[rese$gender == "tm"] <- "m"
+
+  # Filter to requested gender
+  rese <- rese[!is.na(rese$gender) & rese$gender == gender, ]
+
+  if (nrow(rese) == 0) return(0L)
+
+  # Parse dates (strip censoring markers)
+  clean_date <- function(x) {
+    x <- gsub("\\[\\[rcen\\]\\]", "", x)
+    x <- gsub("\\[\\[lcen\\]\\]", "", x)
+    as.Date(x, format = "%d%b%Y")
+  }
+
+  rese$start_parsed <- clean_date(rese$res_entry_start)
+  rese$end_parsed <- clean_date(rese$res_entry_end)
+
+  # Count transitions in window
+  from_date <- as.Date(from_date)
+  to_date <- as.Date(to_date)
+
+  if (direction == "entered") {
+    matches <- rese[!is.na(rese$start_parsed) &
+                    rese$start_parsed >= from_date &
+                    rese$start_parsed <= to_date, ]
+  } else {
+    matches <- rese[!is.na(rese$end_parsed) &
+                    rese$end_parsed >= from_date &
+                    rese$end_parsed <= to_date, ]
+  }
+
+  length(unique(matches$pers_id))
+}
+
 # Helper function to grab % women at an offset relative to term start
 grab_pct_women <- function(ts, offset_days, daily = DAILY_COUNTS) {
   ts2 <- copy(ts)[, target_day := as.Date(term_start + as.integer(offset_days))]

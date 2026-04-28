@@ -4,7 +4,7 @@ library(sqldf); library(stringr); library(readr); library(dplyr); library(writex
 setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
-country_code <- "NO"  # Options: "CA" (Canada), "DE" (Germany), "NL" (Netherlands), "CH" (Switzerland), "NO" (Norway)
+country_code <- "CA"  # Options: "CA" (Canada), "DE" (Germany), "NL" (Netherlands), "CH" (Switzerland), "NO" (Norway)
 country_name <- switch(
   country_code,
   "CA" = "Canada",
@@ -206,7 +206,7 @@ parl_starts <- sort(parl_starts)
 
 # Calculate fictional "election-only" fluctuations
 # Parameter: how many days before/after elections to measure
-n_days <- 60  # change to any integer you like
+n_days <- 80  # change to any integer you like
 
 # Get unique parliament start dates with their IDs
 setDT(PARL)
@@ -305,7 +305,86 @@ if (nrow(deviation_periods) > 0) {
   warning_labels <- data.table()
 }
 
-# Create a triple-line plot 
+# Per-parliament transition analysis (FIRST ATTEMPT — needs rethinking)
+# For each parliament: who entered at this election, and who left mid-term
+# during the preceding parliament? Broken down by gender.
+#
+# KNOWN CONCERNS:
+# - The n_days window around session start is a blunt instrument. It conflates
+#   the election period with whatever happens in the weeks before/after, and
+#   for countries like Canada where the election-to-session gap varies (30-140
+#   days), the window either misses the actual turnover or captures unrelated
+#   mid-term changes.
+# - The "between elections" period is defined as the gap between two n_days
+#   windows, so its boundaries shift with n_days. This makes the attrition
+#   rates sensitive to a parameter choice that should ideally not matter.
+
+# Build the data frame: one row per parliament
+parl_transitions <- do.call(rbind, lapply(seq_along(parl_starts), function(i) {
+  ps <- parl_starts[i]
+
+  # "Entered at election": entries within n_days window around this session start
+  elec_from <- as.Date(ps) - n_days
+  elec_to <- as.Date(ps) + n_days
+
+  entered_f <- count_mp_transitions(elec_from, elec_to, "entered", "f", country_code, RESE, POLI)
+  entered_m <- count_mp_transitions(elec_from, elec_to, "entered", "m", country_code, RESE, POLI)
+
+  # "Left between elections": departures between the previous election window
+  # and this election window (mid-term attrition during the preceding parliament)
+  # Attrition rate = who left / who was there at the start of the between period
+  if (i > 1) {
+    prev_ps <- parl_starts[i - 1]
+    between_from <- as.Date(prev_ps) + n_days + 1
+    between_to <- as.Date(ps) - n_days - 1
+    if (between_from <= between_to) {
+      left_f <- count_mp_transitions(between_from, between_to, "left", "f", country_code, RESE, POLI)
+      left_m <- count_mp_transitions(between_from, between_to, "left", "m", country_code, RESE, POLI)
+
+      # Denominator: how many women/men were seated on the first day of the between period
+      seated_day <- DAILY_COUNTS[thisday == between_from]
+      seated_f <- if (nrow(seated_day) > 0) seated_day$pol_f else NA_integer_
+      seated_m <- if (nrow(seated_day) > 0) seated_day$pol_m else NA_integer_
+    } else {
+      # Election windows overlap (very short parliament) — no between period
+      left_f <- NA_integer_
+      left_m <- NA_integer_
+      seated_f <- NA_integer_
+      seated_m <- NA_integer_
+    }
+  } else {
+    # First parliament: no preceding period
+    left_f <- NA_integer_
+    left_m <- NA_integer_
+    seated_f <- NA_integer_
+    seated_m <- NA_integer_
+  }
+
+  data.frame(
+    parliament_id = PARL$parliament_id[match(ps, PARL$leg_period_start_dateformat)],
+    session_start = ps,
+    entered_f = entered_f,
+    entered_m = entered_m,
+    entered_total = entered_f + entered_m,
+    pct_entered_f = round(100 * entered_f / max(entered_f + entered_m, 1), 1),
+    left_between_f = left_f,
+    left_between_m = left_m,
+    seated_f = seated_f,
+    seated_m = seated_m,
+    # Attrition rate: what % of women/men who started the term left mid-term
+    # NA when no one of that gender was seated (denominator = 0)
+    attrition_rate_f = ifelse(is.na(left_f) | is.na(seated_f) | seated_f == 0,
+                              NA_real_, round(100 * left_f / seated_f, 1)),
+    attrition_rate_m = ifelse(is.na(left_m) | is.na(seated_m) | seated_m == 0,
+                              NA_real_, round(100 * left_m / seated_m, 1)),
+    stringsAsFactors = FALSE
+  )
+}))
+
+cat("\n=== Per-Parliament Transition Analysis (n_days =", n_days, ") ===\n")
+print(as.data.frame(parl_transitions))
+
+# Create a triple-line plot
 p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
   geom_vline(xintercept = parl_starts, color = "gray70", alpha = 0.6, linewidth = 0.3) +
   geom_text(data = parl_years, 
@@ -340,7 +419,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
                hjust = 0.5, vjust = 0.5)
    else NULL} +
   scale_y_continuous(
-    name = "Total Number of MPs", 
+    name = "Total Number of MPs",
     breaks = scales::pretty_breaks(n = 6),
     labels = function(x) round(x * max(DAILY_COUNTS$pol_all, na.rm = TRUE)),
     sec.axis = sec_axis(
