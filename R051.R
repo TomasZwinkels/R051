@@ -4,6 +4,7 @@ library(sqldf); library(stringr); library(readr); library(dplyr); library(writex
 setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
+USE_SYNTHETIC <- TRUE # Set to TRUE to load synthetic Slowjamistan data for testing
 country_code <- "CA"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway)
 country_name <- switch(
   country_code,
@@ -14,6 +15,10 @@ country_name <- switch(
   "NO" = "Norway",
   country_code
 )
+if (USE_SYNTHETIC) {
+  country_code <- "SJ"
+  country_name <- "Slowjamistan"
+}
 
 # Load data integrity functions 
 pathtocheckerfunctions <- "/home/tomas/projects/ProjectR047_PCCIntegrity/"
@@ -25,10 +30,18 @@ source("R051_functions.R")
 test_file("R051_unittests.R")
 
 # Import data
-POLI = read.csv("/home/tomas/projects/PCCdata/POLI.csv", header = TRUE, sep = ";")
-RESE = read.csv("/home/tomas/projects/PCCdata/RESE.csv", header = TRUE, sep = ";")
-PARL = read.csv("/home/tomas/projects/PCCdata/PARL.csv", header = TRUE, sep = ";")
-MEME = read.csv("/home/tomas/projects/PCCdata/MEME.csv", header = TRUE, sep = ";")
+if (USE_SYNTHETIC) {
+  synthetic_dir <- "/home/tomas/projects/pcc-synthetic-data/output/case_all_replaced"
+  POLI = read.csv(file.path(synthetic_dir, "POLI_slowjamistan.csv"), header = TRUE, sep = ";")
+  RESE = read.csv(file.path(synthetic_dir, "RESE_membership_slowjamistan.csv"), header = TRUE, sep = ";")
+  PARL = read.csv(file.path(synthetic_dir, "PARL_slowjamistan.csv"), header = TRUE, sep = ";")
+  MEME = data.frame()
+} else {
+  POLI = read.csv("/home/tomas/projects/PCCdata/POLI.csv", header = TRUE, sep = ";")
+  RESE = read.csv("/home/tomas/projects/PCCdata/RESE.csv", header = TRUE, sep = ";")
+  PARL = read.csv("/home/tomas/projects/PCCdata/PARL.csv", header = TRUE, sep = ";")
+  MEME = read.csv("/home/tomas/projects/PCCdata/MEME.csv", header = TRUE, sep = ";")
+}
 
 # Data integrity checks
 RESE <- RESE[which(RESE$country_abb == country_code),]
@@ -83,6 +96,8 @@ if (country_code == "CA") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "TK"),]
 } else if (country_code == "NO") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "ST"),]
+} else if (country_code == "SJ") {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "SA"),]
 } else {
   stop(paste("Unsupported country_code for PARL filter:", country_code))
 }
@@ -135,7 +150,11 @@ print(paste("Created", length(all_days), "days from", min(all_days), "to", max(a
 
 # Calculate daily counts with caching system
 # Check if data has changed by comparing versions (country-specific caching)
-current_data_version <- trimws(readLines("/home/tomas/projects/PCCdata/dataversion.txt")[1])
+if (USE_SYNTHETIC) {
+  current_data_version <- trimws(readLines(file.path(synthetic_dir, "dataversion.txt"))[1])
+} else {
+  current_data_version <- trimws(readLines("/home/tomas/projects/PCCdata/dataversion.txt")[1])
+}
 version_file <- paste0("dataversion_latest_run_", country_code, ".txt")
 cache_file <- paste0("daily_counts_cache_", country_code, ".RData")
 
@@ -430,12 +449,16 @@ print(parl_transitions)
 
 # Summary statistics for graph annotation
 avg_attrition_f <- round(mean(parl_transitions$attrition_pct_f, na.rm = TRUE), 1)
+sd_attrition_f <- round(sd(parl_transitions$attrition_pct_f, na.rm = TRUE), 1)
 avg_attrition_m <- round(mean(parl_transitions$attrition_pct_m, na.rm = TRUE), 1)
+sd_attrition_m <- round(sd(parl_transitions$attrition_pct_m, na.rm = TRUE), 1)
 avg_reinforcement_bias_f <- round(mean(parl_transitions$reinforcement_bias_f, na.rm = TRUE), 1)
+sd_reinforcement_bias_f <- round(sd(parl_transitions$reinforcement_bias_f, na.rm = TRUE), 1)
 
 summary_text <- sprintf(
-  "Avg. mid-term attrition rate:\n  Women: %.1f%%   Men: %.1f%%\nAvg. reinforcement bias (women): %.1f%%\n  (%% women among replacements minus\n   %% women seated at start of term;\n   positive = mid-term replacements favor women)",
-  avg_attrition_f, avg_attrition_m, avg_reinforcement_bias_f
+  "Avg. mid-term attrition rate:\n  Women: %.1f%% (SD=%.1f)   Men: %.1f%% (SD=%.1f)\nAvg. reinforcement bias (women): %.1f%% (SD=%.1f)\n  (%% women among replacements minus\n   %% women seated at start of term;\n   positive = mid-term replacements favor women)",
+  avg_attrition_f, sd_attrition_f, avg_attrition_m, sd_attrition_m,
+  avg_reinforcement_bias_f, sd_reinforcement_bias_f
 )
 cat("\n", summary_text, "\n")
 
