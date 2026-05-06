@@ -31,7 +31,7 @@ test_file("R051_unittests.R")
 
 # Import data
 if (USE_SYNTHETIC) {
-  synthetic_dir <- "/home/tomas/projects/ProjectR054_PCCSyntheticData/output/case_equal_dropout_partial_replacement"
+  synthetic_dir <- "/home/tomas/projects/ProjectR054_PCCSyntheticData/output/case_equal_dropout_full_replacement"
   POLI = read.csv(file.path(synthetic_dir, "POLI_slowjamistan.csv"), header = TRUE, sep = ";")
   RESE = read.csv(file.path(synthetic_dir, "RESE_membership_slowjamistan.csv"), header = TRUE, sep = ";")
   PARL = read.csv(file.path(synthetic_dir, "PARL_slowjamistan.csv"), header = TRUE, sep = ";")
