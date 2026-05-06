@@ -79,10 +79,9 @@ count_mp_transitions <- function(from_date, to_date, direction, gender,
 ###############################################################################
 # Function: find_new_cohort_day
 # Description:
-#   For a given parliament, find the day with the largest sum of MP entries
-#   and departures. This is the data-driven "cohort change day" — typically
-#   election day or the day the new parliament is seated, depending on how
-#   the source data records episode boundaries.
+#   For a given parliament, find the day with the most MP entries (inflow
+#   only, ignoring departures). This is the data-driven "cohort change day"
+#   — typically the day the new parliament is seated.
 #
 # Inputs:
 #   - parliament_id: e.g. "CA_NT-HC_2019"
@@ -90,7 +89,7 @@ count_mp_transitions <- function(from_date, to_date, direction, gender,
 #   - PARL: raw PARL data.frame (with leg_period_start/end_dateformat columns)
 #
 # Returns:
-#   A Date: the day with the highest turnover within the parliament's term.
+#   A Date: the day with the most MP entries within the search window.
 #   NA if no transitions found.
 ###############################################################################
 find_new_cohort_day <- function(parliament_id, RESE, PARL) {
@@ -130,15 +129,12 @@ find_new_cohort_day <- function(parliament_id, RESE, PARL) {
   starts <- as.Date(gsub("\\[\\[.*\\]\\]", "", RESE$res_entry_start), format = "%d%b%Y")
   ends <- as.Date(gsub("\\[\\[.*\\]\\]", "", RESE$res_entry_end), format = "%d%b%Y")
 
-  # Collect all entry and departure dates within the search window
+  # Collect entry dates within the search window (inflow only)
   entry_dates <- starts[!is.na(starts) & starts >= search_from & starts <= search_to]
-  exit_dates <- ends[!is.na(ends) & ends >= search_from & ends <= search_to]
+  if (length(entry_dates) == 0) return(as.Date(NA))
 
-  all_transition_dates <- c(entry_dates, exit_dates)
-  if (length(all_transition_dates) == 0) return(as.Date(NA))
-
-  # Find the date with the highest frequency of transitions
-  date_counts <- table(all_transition_dates)
+  # Find the date with the most MP entries
+  date_counts <- table(entry_dates)
   peak_date <- as.Date(names(which.max(date_counts)))
 
   peak_date
