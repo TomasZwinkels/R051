@@ -5,7 +5,7 @@ setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
 USE_SYNTHETIC <- TRUE # Set to TRUE to load synthetic Slowjamistan data for testing
-country_code <- "CA"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway)
+country_code <- "NL"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway)
 country_name <- switch(
   country_code,
   "CA" = "Canada",
@@ -31,7 +31,7 @@ test_file("R051_unittests.R")
 
 # Import data
 if (USE_SYNTHETIC) {
-  synthetic_dir <- "/home/tomas/projects/ProjectR054_PCCSyntheticData/output/case_equal_dropout_full_replacement_female_bias"
+  synthetic_dir <- "/home/tomas/projects/ProjectR054_PCCSyntheticData/output/case_returning_equal_dropout_full_repl_female_bias"
   POLI = read.csv(file.path(synthetic_dir, "POLI_slowjamistan.csv"), header = TRUE, sep = ";")
   RESE = read.csv(file.path(synthetic_dir, "RESE_membership_slowjamistan.csv"), header = TRUE, sep = ";")
   PARL = read.csv(file.path(synthetic_dir, "PARL_slowjamistan.csv"), header = TRUE, sep = ";")
@@ -226,7 +226,7 @@ parl_starts <- sort(parl_starts)
 # =============================================================================
 # Calculate "election-only" fluctuations using data-driven cohort change days
 #
-# Goal: build the green "Election-Only Trend" line in the graph. This line
+# Goal: build the green "Election vs. Mid-Term" line in the graph. This line
 # shows what women's representation would look like if only election-related
 # changes mattered (ignoring mid-term resignations, deaths, by-elections).
 #
@@ -304,6 +304,15 @@ election_jumps_clean <- DELTA$election_jumps
 election_jumps_clean[is.na(election_jumps_clean)] <- 0
 
 DELTA$running_average_election_only <- startpercentage + cumsum(election_jumps_clean)
+
+# Election-to-election trend: how are election outcomes themselves trending?
+# Uses pct_after(this election) - pct_after(previous election), ignoring
+# all mid-term dynamics. Shows whether successive elections are getting
+# better or worse for women.
+election_to_election_jumps <- c(NA, diff(DELTA$pct_after))
+election_to_election_jumps[is.na(election_to_election_jumps)] <- 0
+DELTA$running_election_to_election <- startpercentage + cumsum(election_to_election_jumps)
+
 tail(DELTA)
 
 # Create year labels for parliament starts
@@ -482,7 +491,11 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
   geom_line(aes(y = proportion_female, color = "Daily Women %"), linewidth = 0.8) +
   geom_step(data = DELTA,
             aes(x = new_cohort_day, y = running_average_election_only / 100,
-                color = "Election-Only Trend"),
+                color = "Election vs. Mid-Term"),
+            linewidth = 1.0) +
+  geom_step(data = DELTA,
+            aes(x = new_cohort_day, y = running_election_to_election / 100,
+                color = "Election Outcomes"),
             linewidth = 1.0) +
   # Add red highlighting for deviation periods (thicker and more visible)
   {if (nrow(deviation_segments) > 0) 
@@ -520,7 +533,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     # , limits = as.Date(c("1945-01-01", "2025-12-31"))
   ) +
   scale_color_manual(
-    values = c("Daily Women %" = "red", "Total MPs" = "blue", "Parliament Size Baseline" = "black", "Election-Only Trend" = "green"),
+    values = c("Daily Women %" = "red", "Total MPs" = "blue", "Parliament Size Baseline" = "black", "Election vs. Mid-Term" = "green", "Election Outcomes" = "orange"),
     name = "Measures"
   ) +
   theme_minimal(base_size = 18) +
@@ -530,7 +543,22 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     legend.position = "top"
   ) +
   ggtitle(paste("Women's Representation and Parliament Size in", country_name, "Over Time")) +
-  labs(caption = paste("Generated on:", format(Sys.time(), "%Y-%m-%d at %H:%M:%S")))
+  labs(caption = {
+    caption_text <- paste0("Generated on: ",
+      format(Sys.time(), "%Y-%m-%d at %H:%M:%S"))
+    if (USE_SYNTHETIC) {
+      config_file <- file.path(synthetic_dir, "config_summary.txt")
+      if (file.exists(config_file)) {
+        cfg_lines <- readLines(config_file)
+        caption_text <- paste0(
+          paste(cfg_lines, collapse = "  |  "), "\n", caption_text)
+      } else {
+        caption_text <- paste0("Synthetic case: ",
+          basename(synthetic_dir), "\n", caption_text)
+      }
+    }
+    caption_text
+  })
 
 # Plot created successfully!
 
