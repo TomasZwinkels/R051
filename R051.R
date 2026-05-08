@@ -31,7 +31,7 @@ test_file("R051_unittests.R")
 
 # Import data
 if (USE_SYNTHETIC) {
-  synthetic_dir <- "/home/tomas/projects/ProjectR054_PCCSyntheticData/output/case_returning_equal_dropout_full_repl_female_bias"
+  synthetic_dir <- "/home/tomas/projects/ProjectR054_PCCSyntheticData/output/case_equal_dropout_full_replacement_female_bias"
   POLI = read.csv(file.path(synthetic_dir, "POLI_slowjamistan.csv"), header = TRUE, sep = ";")
   RESE = read.csv(file.path(synthetic_dir, "RESE_membership_slowjamistan.csv"), header = TRUE, sep = ";")
   PARL = read.csv(file.path(synthetic_dir, "PARL_slowjamistan.csv"), header = TRUE, sep = ";")
@@ -540,7 +540,8 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
   theme(
     plot.margin = margin(10, 30, 10, 10),
     axis.text.x = element_text(angle = 45, hjust = 1),
-    legend.position = "top"
+    legend.position = "top",
+    plot.caption = element_text(size = 8, family = "mono", hjust = 0)
   ) +
   ggtitle(paste("Women's Representation and Parliament Size in", country_name, "Over Time")) +
   labs(caption = {
@@ -551,7 +552,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
       if (file.exists(config_file)) {
         cfg_lines <- readLines(config_file)
         caption_text <- paste0(
-          paste(cfg_lines, collapse = "  |  "), "\n", caption_text)
+          paste(cfg_lines, collapse = "\n"), "\n", caption_text)
       } else {
         caption_text <- paste0("Synthetic case: ",
           basename(synthetic_dir), "\n", caption_text)
