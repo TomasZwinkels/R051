@@ -4,8 +4,9 @@ library(sqldf); library(stringr); library(readr); library(dplyr); library(writex
 setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
-USE_SYNTHETIC <- TRUE # Set to TRUE to load synthetic Slowjamistan data for testing
-country_code <- "NL"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway)
+USE_SYNTHETIC <- FALSE # Set to TRUE to load synthetic Slowjamistan data for testing
+force_recalculate <- TRUE # Set to TRUE to force recalculation of daily counts (ignores cache)
+country_code <- "US"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway), "US" (United States)
 country_name <- switch(
   country_code,
   "CA" = "Canada",
@@ -13,6 +14,7 @@ country_name <- switch(
   "DE" = "Germany",
   "NL" = "Netherlands",
   "NO" = "Norway",
+  "US" = "United States (House of Representatives)",
   country_code
 )
 if (USE_SYNTHETIC) {
@@ -35,6 +37,13 @@ if (USE_SYNTHETIC) {
   POLI = read.csv(file.path(synthetic_dir, "POLI_slowjamistan.csv"), header = TRUE, sep = ";")
   RESE = read.csv(file.path(synthetic_dir, "RESE_membership_slowjamistan.csv"), header = TRUE, sep = ";")
   PARL = read.csv(file.path(synthetic_dir, "PARL_slowjamistan.csv"), header = TRUE, sep = ";")
+  MEME = data.frame()
+} else if (country_code == "US") {
+  # Load US data directly from R052 BioGuide exports
+  r052_dir <- "/home/tomas/projects/ProjectR052_DataFromExternalAPIs/USA/BioGuide/data_ready_for_IMPORT"
+  POLI = read.csv(file.path(r052_dir, "POLI_import_ready.csv"), header = TRUE, skip = 1)
+  RESE = read.csv(file.path(r052_dir, "RESE_parlmem_import_ready.csv"), header = TRUE, skip = 1)
+  PARL = read.csv(file.path(r052_dir, "PARL_import_ready.csv"), header = TRUE, skip = 1)
   MEME = data.frame()
 } else {
   POLI = read.csv("/home/tomas/projects/PCCdata/POLI.csv", header = TRUE, sep = ";")
@@ -96,6 +105,8 @@ if (country_code == "CA") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "TK"),]
 } else if (country_code == "NO") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "ST"),]
+} else if (country_code == "US") {
+  PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "HR"),]
 } else if (country_code == "SJ") {
   PARL <- PARL[which(PARL$country_abb == country_code & PARL$level == "NT" & PARL$assembly_abb == "SA"),]
 } else {
@@ -161,7 +172,10 @@ cache_file <- paste0("daily_counts_cache_", country_code, ".RData")
 # Check if we need to recalculate or can load from cache
 recalculate_needed <- FALSE  # Reset flag
 
-if (file.exists(version_file) && file.exists(cache_file)) {
+if (force_recalculate) {
+  cat("force_recalculate is TRUE — recalculating daily counts...\n")
+  recalculate_needed <- TRUE
+} else if (file.exists(version_file) && file.exists(cache_file)) {
   last_run_version <- trimws(readLines(version_file)[1])
   
   if (current_data_version == last_run_version) {
@@ -473,6 +487,10 @@ cat("\n", summary_text, "\n")
 
 mean(parl_transitions$reinforcement_bias_f,na.rm=TRUE)
 
+# X-axis date limits (set to NULL for full range, or a Date vector to zoom)
+x_date_limits <- as.Date(c("1945-01-01", "2027-12-31"))
+x_start <- if (!is.null(x_date_limits)) x_date_limits[1] else min(DAILY_COUNTS$thisday)
+
 # Create a triple-line plot
 p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
   geom_vline(xintercept = parl_starts, color = "gray70", alpha = 0.6, linewidth = 0.3) +
@@ -491,11 +509,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
   geom_line(aes(y = proportion_female, color = "Daily Women %"), linewidth = 0.8) +
   geom_step(data = DELTA,
             aes(x = new_cohort_day, y = running_average_election_only / 100,
-                color = "Election vs. Mid-Term"),
-            linewidth = 1.0) +
-  geom_step(data = DELTA,
-            aes(x = new_cohort_day, y = running_election_to_election / 100,
-                color = "Election Outcomes"),
+                color = "Election-Only Trend"),
             linewidth = 1.0) +
   # Add red highlighting for deviation periods (thicker and more visible)
   {if (nrow(deviation_segments) > 0) 
@@ -512,7 +526,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
                hjust = 0.5, vjust = 0.5)
    else NULL} +
   # Add summary statistics in top-left corner
-  annotate("label", x = min(DAILY_COUNTS$thisday), y = 0.95,
+  annotate("label", x = x_start, y = 0.95,
            label = summary_text, hjust = 0, vjust = 1,
            size = 3.5, family = "mono",
            fill = "white", alpha = 0.85,
@@ -529,11 +543,11 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     )
   ) +
   scale_x_date(
-    name = "Time"
-    # , limits = as.Date(c("1945-01-01", "2025-12-31"))
+    name = "Time",
+    limits = x_date_limits
   ) +
   scale_color_manual(
-    values = c("Daily Women %" = "red", "Total MPs" = "blue", "Parliament Size Baseline" = "black", "Election vs. Mid-Term" = "green", "Election Outcomes" = "orange"),
+    values = c("Daily Women %" = "red", "Total MPs" = "blue", "Parliament Size Baseline" = "black", "Election-Only Trend" = "green"),
     name = "Measures"
   ) +
   theme_minimal(base_size = 18) +
