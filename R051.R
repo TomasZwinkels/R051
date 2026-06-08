@@ -5,7 +5,7 @@ setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 
 # Configuration: Set country code for analysis
 USE_SYNTHETIC <- FALSE # Set to TRUE to load synthetic Slowjamistan data for testing
-force_recalculate <- TRUE # Set to TRUE to force recalculation of daily counts (ignores cache)
+force_recalculate <- FALSE # Set to TRUE to force recalculation of daily counts (ignores cache)
 country_code <- "US"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway), "US" (United States)
 country_name <- switch(
   country_code,
