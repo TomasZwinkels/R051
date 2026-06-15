@@ -11,11 +11,20 @@ country_code <- "US"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (German
 # Trait configuration: which binary characteristic to track over time
 # The script splits all MPs into a "focal group" and its complement,
 # then tracks the focal group's proportion daily.
-trait_column     <- "gender"   # column name in POLI to split on
-focal_value      <- "f"        # value that defines the focal group
-focal_label      <- "Women"    # human-readable label for focal group
-complement_label <- "Men"      # human-readable label for complement
-trait_name       <- "Gender"   # used in graph title and filename
+# --- Option A: Gender ---
+trait_column     <- "gender"
+focal_value      <- "f"
+focal_label      <- "Women"
+complement_label <- "Men"
+trait_name       <- "Gender"
+
+# --- Option B: College education (requires ICPSR data, covers 1789-1996) ---
+# trait_column     <- "has_college"
+# focal_value      <- "yes"
+# focal_label      <- "College-educated"
+# complement_label <- "No college"
+# trait_name       <- "Education"
+
 country_name <- switch(
   country_code,
   "CA" = "Canada",
@@ -54,6 +63,20 @@ if (USE_SYNTHETIC) {
   RESE = read.csv(file.path(r052_dir, "RESE_parlmem_import_ready.csv"), header = TRUE, skip = 1)
   PARL = read.csv(file.path(r052_dir, "PARL_import_ready.csv"), header = TRUE, skip = 1)
   MEME = data.frame()
+
+  # Enrich with ICPSR education data (college_v18)
+  # ICPSR 7803 covers 1789-1996; post-1996 members will have NA.
+  icpsr_poli_file <- "/home/tomas/projects/ProjectR052_DataFromExternalAPIs/USA/ICPSR_Congressional/data_ready_for_IMPORT/POLI_import_ready.csv"
+  if (file.exists(icpsr_poli_file)) {
+    icpsr_poli <- read.csv(icpsr_poli_file, header = TRUE, skip = 1)
+    icpsr_edu <- icpsr_poli[, c("id_us_icpsr", "college_v18")]
+    POLI <- merge(POLI, icpsr_edu, by = "id_us_icpsr", all.x = TRUE)
+    # Derive binary has_college: yes/no/NA
+    POLI$has_college <- ifelse(
+      is.na(POLI$college_v18), NA_character_,
+      ifelse(POLI$college_v18 == "none", "no", "yes")
+    )
+  }
 } else {
   POLI = read.csv("/home/tomas/projects/PCCdata/POLI.csv", header = TRUE, sep = ";")
   RESE = read.csv("/home/tomas/projects/PCCdata/RESE.csv", header = TRUE, sep = ";")
