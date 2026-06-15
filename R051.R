@@ -6,6 +6,7 @@ setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 # Configuration: Set country code for analysis
 USE_SYNTHETIC <- FALSE # Set to TRUE to load synthetic Slowjamistan data for testing
 force_recalculate <- FALSE # Set to TRUE to force recalculation of daily counts (ignores cache)
+show_mp_lines <- TRUE # Set to TRUE to show Total MPs and Parliament Size Baseline lines
 country_code <- "US"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway), "US" (United States)
 
 # Trait configuration: which binary characteristic to track over time
@@ -20,9 +21,9 @@ trait_name       <- "Gender"
 
 # --- Option B: College education (requires ICPSR data, covers 1789-1996) ---
 # trait_column     <- "has_college"
-# focal_value      <- "yes"
-# focal_label      <- "College-educated"
-# complement_label <- "No college"
+# focal_value      <- "no"
+# focal_label      <- "No college"
+# complement_label <- "College-educated"
 # trait_name       <- "Education"
 
 country_name <- switch(
@@ -201,9 +202,11 @@ if (USE_SYNTHETIC) {
 } else {
   current_data_version <- trimws(readLines("/home/tomas/projects/PCCdata/dataversion.txt")[1])
 }
-trait_key <- tolower(gsub(" ", "_", trait_name))
-version_file <- paste0("dataversion_latest_run_", country_code, "_", trait_key, ".txt")
-cache_file <- paste0("daily_counts_cache_", country_code, "_", trait_key, ".RData")
+trait_key <- paste0(tolower(gsub(" ", "_", trait_name)), "_", tolower(gsub(" ", "_", focal_value)))
+country_dir <- file.path(country_code)
+if (!dir.exists(country_dir)) dir.create(country_dir)
+version_file <- file.path(country_dir, paste0("dataversion_latest_run_", country_code, "_", trait_key, ".txt"))
+cache_file <- file.path(country_dir, paste0("daily_counts_cache_", country_code, "_", trait_key, ".RData"))
 
 # Check if we need to recalculate or can load from cache
 recalculate_needed <- FALSE  # Reset flag
@@ -213,18 +216,19 @@ if (force_recalculate) {
   recalculate_needed <- TRUE
 } else if (file.exists(version_file) && file.exists(cache_file)) {
   last_run_version <- trimws(readLines(version_file)[1])
-  
+
   if (current_data_version == last_run_version) {
-    cat("Data version unchanged (", current_data_version, ") for country", country_code, ", loading cached daily counts...\n")
+    cat("Cache hit: data version unchanged (", current_data_version, ") for country =", country_code, ", trait =", trait_name, "\n")
+    cat("Loading from:", cache_file, "\n")
     load(cache_file)
     cat("Successfully loaded cached data.\n")
   } else {
-    cat("Data version changed from", last_run_version, "to", current_data_version, "for country", country_code, "\n")
+    cat("Cache stale: data version changed from", last_run_version, "to", current_data_version, "for country =", country_code, ", trait =", trait_name, "\n")
     cat("Recalculating daily counts - this may take a while...\n")
     recalculate_needed <- TRUE
   }
 } else {
-  cat("No cache found for country", country_code, "or has not run for this country on this data version before.\n")
+  cat("No cache found for country =", country_code, ", trait =", trait_name, "\n")
   cat("Calculating daily counts for the first time - this may take a while...\n")
   recalculate_needed <- TRUE
 }
@@ -542,24 +546,24 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
             color = "gray50", 
             hjust = 0, 
             vjust = 0.5) +
-  geom_line(aes(y = pol_all / max(pol_all, na.rm = TRUE), color = "Total MPs"), linewidth = 0.8) +
-  geom_step(data = parl_baseline, 
-            aes(x = start_date, y = baseline_size / max(DAILY_COUNTS$pol_all, na.rm = TRUE), 
-                color = "Parliament Size Baseline"), 
-            linewidth = 1.0) +
+  {if (show_mp_lines) geom_line(aes(y = pol_all / max(pol_all, na.rm = TRUE), color = "Total MPs"), linewidth = 0.8) else NULL} +
+  {if (show_mp_lines) geom_step(data = parl_baseline,
+            aes(x = start_date, y = baseline_size / max(DAILY_COUNTS$pol_all, na.rm = TRUE),
+                color = "Parliament Size Baseline"),
+            linewidth = 1.0) else NULL} +
   geom_line(aes(y = proportion_focal, color = paste0("Daily ", focal_label, " %")), linewidth = 0.8) +
   geom_step(data = DELTA,
             aes(x = new_cohort_day, y = running_average_election_only / 100,
                 color = "Election-Only Trend"),
             linewidth = 1.0) +
   # Add red highlighting for deviation periods (thicker and more visible)
-  {if (nrow(deviation_segments) > 0) 
-    geom_line(data = deviation_segments, 
-              aes(x = thisday, y = pol_all_normalized, group = period_id), 
-              color = "red", linewidth = 2.5, alpha = 0.8) 
+  {if (show_mp_lines && nrow(deviation_segments) > 0)
+    geom_line(data = deviation_segments,
+              aes(x = thisday, y = pol_all_normalized, group = period_id),
+              color = "red", linewidth = 2.5, alpha = 0.8)
    else NULL} +
   # Add warning labels with background boxes
-  {if (nrow(warning_labels) > 0)
+  {if (show_mp_lines && nrow(warning_labels) > 0)
     geom_label(data = warning_labels,
                aes(x = x, y = y, label = label),
                color = "red", size = 2.5, fontface = "bold",
@@ -588,10 +592,12 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     limits = x_date_limits
   ) +
   scale_color_manual(
-    values = setNames(
-      c("red", "blue", "black", "green"),
-      c(paste0("Daily ", focal_label, " %"), "Total MPs", "Parliament Size Baseline", "Election-Only Trend")
-    ),
+    values = {
+      cols <- c("red", "green")
+      nms <- c(paste0("Daily ", focal_label, " %"), "Election-Only Trend")
+      if (show_mp_lines) { cols <- c(cols, "blue", "black"); nms <- c(nms, "Total MPs", "Parliament Size Baseline") }
+      setNames(cols, nms)
+    },
     name = "Measures"
   ) +
   theme_minimal(base_size = 18) +
@@ -622,7 +628,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
 # Plot created successfully!
 
 # Save the plot
-plot_filename <- paste0("representation_", tolower(gsub(" ", "_", trait_name)), "_", country_code, ".png")
+plot_filename <- file.path(country_dir, paste0("representation_", tolower(gsub(" ", "_", trait_name)), "_", country_code, ".png"))
 ggsave(plot_filename, plot = p_simple, width = 16, height = 8, dpi = 150, bg = "white")
 cat("Plot saved as", plot_filename, "with double width!\n")
 
@@ -630,3 +636,81 @@ cat("Plot saved as", plot_filename, "with double width!\n")
 final_deviations <- detect_parliament_deviations(DAILY_COUNTS, parl_baseline, seat_threshold = 5, duration_threshold_days = 90, merge_gap_days = 7)
 
 p_simple
+
+# =============================================================================
+# Plot: Mid-term attrition rate per parliamentary cohort
+# =============================================================================
+
+attrition_long <- parl_transitions |>
+  select(new_cohort_day, attrition_pct_focal, attrition_pct_complement) |>
+  tidyr::pivot_longer(
+    cols = c(attrition_pct_focal, attrition_pct_complement),
+    names_to = "group", values_to = "attrition_pct"
+  ) |>
+  mutate(group = ifelse(group == "attrition_pct_focal", focal_label, complement_label))
+
+attrition_means <- attrition_long |>
+  group_by(group) |>
+  summarise(mean_attrition = mean(attrition_pct, na.rm = TRUE), .groups = "drop")
+
+p_attrition <- ggplot(attrition_long, aes(x = new_cohort_day, y = attrition_pct, color = group)) +
+  geom_line(linewidth = 0.6) +
+  geom_point(size = 1.5) +
+  geom_hline(data = attrition_means, aes(yintercept = mean_attrition, color = group),
+             linetype = "dashed", linewidth = 0.5) +
+  geom_label(data = attrition_means,
+             aes(x = x_date_limits[2], y = mean_attrition, color = group,
+                 label = paste0("mean: ", round(mean_attrition, 1), "%")),
+             hjust = 1, size = 3.5, fill = "white", label.size = 0.2, show.legend = FALSE) +
+  scale_color_manual(values = setNames(c("red", "blue"), c(focal_label, complement_label))) +
+  scale_x_date(name = "Cohort start", limits = x_date_limits) +
+  scale_y_continuous(name = "Mid-term attrition (%)", limits = c(0, NA)) +
+  labs(
+    title = paste0("Mid-Term Attrition Rate by Parliamentary Cohort in ", country_name),
+    subtitle = "% of each group seated after the election who left before the next election",
+    color = "Group"
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA),
+        legend.position = "top")
+
+attrition_filename <- file.path(country_dir, paste0("attrition_", tolower(gsub(" ", "_", trait_name)), "_", country_code, ".png"))
+ggsave(attrition_filename, p_attrition, width = 14, height = 7, dpi = 150, bg = "white")
+cat("Plot saved as", attrition_filename, "\n")
+
+p_attrition
+
+# =============================================================================
+# Plot: Reinforcement bias per parliamentary cohort
+# =============================================================================
+
+reinf_data <- parl_transitions |>
+  select(new_cohort_day, reinforcement_bias_focal) |>
+  filter(!is.na(reinforcement_bias_focal))
+
+reinf_mean <- mean(reinf_data$reinforcement_bias_focal, na.rm = TRUE)
+
+p_reinforcement <- ggplot(reinf_data, aes(x = new_cohort_day, y = reinforcement_bias_focal)) +
+  geom_hline(yintercept = 0, color = "gray50", linewidth = 0.4) +
+  geom_line(color = "purple", linewidth = 0.6) +
+  geom_point(color = "purple", size = 1.5) +
+  geom_hline(yintercept = reinf_mean, linetype = "dashed", color = "purple", linewidth = 0.5) +
+  geom_label(aes(x = x_date_limits[2], y = reinf_mean,
+                 label = paste0("mean: ", round(reinf_mean, 1), "%")),
+             hjust = 1, size = 3.5, color = "purple", fill = "white", label.size = 0.2) +
+  scale_x_date(name = "Cohort start", limits = x_date_limits) +
+  scale_y_continuous(name = paste0("Reinforcement bias (", tolower(focal_label), ", pp)")) +
+  labs(
+    title = paste0("Mid-Term Reinforcement Bias (", focal_label, ") by Parliamentary Cohort in ", country_name),
+    subtitle = paste0("% ", tolower(focal_label), " among mid-term replacements minus % ", tolower(focal_label), " seated at start of term; positive = replacements favor ", tolower(focal_label))
+  ) +
+  theme_minimal(base_size = 14) +
+  theme(plot.background = element_rect(fill = "white", color = NA),
+        panel.background = element_rect(fill = "white", color = NA))
+
+reinf_filename <- file.path(country_dir, paste0("reinforcement_bias_", tolower(gsub(" ", "_", trait_name)), "_", country_code, ".png"))
+ggsave(reinf_filename, p_reinforcement, width = 14, height = 7, dpi = 150, bg = "white")
+cat("Plot saved as", reinf_filename, "\n")
+
+p_reinforcement

@@ -81,7 +81,7 @@ p_coverage <- ggplot(cohort_coverage, aes(x = start_year)) +
   theme(plot.background = element_rect(fill = "white", color = NA),
         panel.background = element_rect(fill = "white", color = NA))
 
-ggsave("education/education_coverage_US.png", p_coverage, width = 12, height = 6, dpi = 150, bg = "white")
+ggsave("US/education/education_coverage_US.png", p_coverage, width = 12, height = 6, dpi = 150, bg = "white")
 cat("\nPlot saved as education_coverage_US.png\n")
 
 # Plot: education composition over time (stacked)
@@ -113,5 +113,5 @@ p_composition <- ggplot(cohort_long, aes(x = start_year, y = count, fill = categ
   theme(plot.background = element_rect(fill = "white", color = NA),
         panel.background = element_rect(fill = "white", color = NA))
 
-ggsave("education/education_composition_US.png", p_composition, width = 14, height = 7, dpi = 150, bg = "white")
+ggsave("US/education/education_composition_US.png", p_composition, width = 14, height = 7, dpi = 150, bg = "white")
 cat("Plot saved as education_composition_US.png\n")
