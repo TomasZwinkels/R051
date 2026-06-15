@@ -15,8 +15,8 @@ source(file.path(test_file_dir, "R051_functions.R"))
 # - data.table length recycling in test data creation  
 # - min/max of empty data when testing edge cases
 
-# Test grab_pct_women function
-test_that("grab_pct_women returns correct structure", {
+# Test grab_pct_focal function
+test_that("grab_pct_focal returns correct structure", {
   
   # Create test data
   test_term_starts <- data.table(
@@ -27,22 +27,22 @@ test_that("grab_pct_women returns correct structure", {
   test_daily_counts <- data.table(
     thisday = seq(as.Date("2019-12-30"), as.Date("2024-01-03"), by = "day"),
     pol_all = 150,
-    pol_f = 50,
-    proportion_female = 50/150
+    pol_focal = 50,
+    proportion_focal = 50/150
   )
   
   # Test function call
-  result <- grab_pct_women(test_term_starts, -1, test_daily_counts)
+  result <- grab_pct_focal(test_term_starts, -1, test_daily_counts)
   
   # Check structure
   expect_s3_class(result, "data.table")
   expect_true(all(c("parliament_id", "term_start", "target_day", "offset_days", 
-                    "pol_all", "pol_f", "proportion_female", "pct_women") %in% names(result)))
+                    "pol_all", "pol_focal", "proportion_focal", "pct_focal") %in% names(result)))
   expect_equal(nrow(result), 2)
   expect_equal(result$offset_days, c(-1, -1))
 })
 
-test_that("grab_pct_women handles different offset days", {
+test_that("grab_pct_focal handles different offset days", {
   
   # Create minimal test data
   test_term_starts <- data.table(
@@ -53,21 +53,21 @@ test_that("grab_pct_women handles different offset days", {
   test_daily_counts <- data.table(
     thisday = seq(as.Date("2019-12-25"), as.Date("2020-01-10"), by = "day"),
     pol_all = 100,
-    pol_f = 30,
-    proportion_female = 0.3
+    pol_focal = 30,
+    proportion_focal = 0.3
   )
   
   # Test different offsets
-  result_before <- grab_pct_women(test_term_starts, -5, test_daily_counts)
-  result_after <- grab_pct_women(test_term_starts, 7, test_daily_counts)
+  result_before <- grab_pct_focal(test_term_starts, -5, test_daily_counts)
+  result_after <- grab_pct_focal(test_term_starts, 7, test_daily_counts)
   
   expect_equal(result_before$target_day, as.Date("2019-12-27"))
   expect_equal(result_after$target_day, as.Date("2020-01-08"))
-  expect_equal(result_before$pct_women, 30)
-  expect_equal(result_after$pct_women, 30)
+  expect_equal(result_before$pct_focal, 30)
+  expect_equal(result_after$pct_focal, 30)
 })
 
-test_that("grab_pct_women handles missing data gracefully", {
+test_that("grab_pct_focal handles missing data gracefully", {
   
   test_term_starts <- data.table(
     parliament_id = "TEST_2020",
@@ -78,15 +78,15 @@ test_that("grab_pct_women handles missing data gracefully", {
   test_daily_counts <- data.table(
     thisday = seq(as.Date("2020-01-01"), as.Date("2020-01-05"), by = "day"),
     pol_all = 100,
-    pol_f = 30,
-    proportion_female = 0.3
+    pol_focal = 30,
+    proportion_focal = 0.3
   )
   
   # Request data from before the available range
-  result <- grab_pct_women(test_term_starts, -10, test_daily_counts)
+  result <- grab_pct_focal(test_term_starts, -10, test_daily_counts)
   
   expect_equal(nrow(result), 1)
-  expect_true(is.na(result$pct_women))
+  expect_true(is.na(result$pct_focal))
 })
 
 # Test detect_parliament_deviations function
@@ -251,19 +251,19 @@ test_that("Functions work together in typical workflow", {
   test_daily_counts <- data.table(
     thisday = seq(as.Date("2019-12-01"), as.Date("2024-02-01"), by = "day"),
     pol_all = 150,
-    pol_f = 50,
-    proportion_female = 50/150
+    pol_focal = 50,
+    proportion_focal = 50/150
   )
   
-  # Test grab_pct_women workflow
+  # Test grab_pct_focal workflow
   term_starts <- unique(test_parl[, .(parliament_id, term_start = leg_period_start_dateformat)])
-  before_data <- grab_pct_women(term_starts, -30, test_daily_counts)
-  after_data <- grab_pct_women(term_starts, 30, test_daily_counts)
+  before_data <- grab_pct_focal(term_starts, -30, test_daily_counts)
+  after_data <- grab_pct_focal(term_starts, 30, test_daily_counts)
   
   expect_equal(nrow(before_data), 2)
   expect_equal(nrow(after_data), 2)
-  expect_true(all(!is.na(before_data$pct_women)))
-  expect_true(all(!is.na(after_data$pct_women)))
+  expect_true(all(!is.na(before_data$pct_focal)))
+  expect_true(all(!is.na(after_data$pct_focal)))
   
   # Test detect_parliament_deviations workflow
   baseline_data <- test_parl[, .(
@@ -699,8 +699,8 @@ test_that("handles rcen markers in dates", {
 # Block: count_fresh_entrants()
 # ==================================================================
 
-# Helper: build a minimal gender_episodes data.table for testing
-mk_gender_episodes <- function(pers_ids, starts, ends) {
+# Helper: build a minimal group_episodes data.table for testing
+mk_group_episodes <- function(pers_ids, starts, ends) {
   data.table(
     pers_id = pers_ids,
     res_entry_start_dateformat = as.Date(starts),
@@ -709,7 +709,7 @@ mk_gender_episodes <- function(pers_ids, starts, ends) {
 }
 
 test_that("count_fresh_entrants counts MPs present today but not yesterday", {
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B", "C"),
     c("2019-10-21", "2019-10-21", "2019-01-01"),  # A,B enter on 21st; C already there
     c("2023-01-01", "2023-01-01", "2023-01-01")
@@ -719,7 +719,7 @@ test_that("count_fresh_entrants counts MPs present today but not yesterday", {
 })
 
 test_that("count_fresh_entrants returns 0 when no new entrants", {
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B"),
     c("2019-01-01", "2019-01-01"),
     c("2023-01-01", "2023-01-01")
@@ -729,14 +729,14 @@ test_that("count_fresh_entrants returns 0 when no new entrants", {
 })
 
 test_that("count_fresh_entrants returns NA for NA date", {
-  eps <- mk_gender_episodes("A", "2019-01-01", "2023-01-01")
+  eps <- mk_group_episodes("A", "2019-01-01", "2023-01-01")
   result <- count_fresh_entrants(as.Date(NA), eps)
   expect_true(is.na(result))
 })
 
 test_that("count_fresh_entrants counts returning MP as fresh if gap in service", {
   # MP served 2015-2019, left, returned 2021
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "A"),
     c("2015-01-01", "2021-09-20"),
     c("2019-10-20", "2025-04-27")
@@ -747,7 +747,7 @@ test_that("count_fresh_entrants counts returning MP as fresh if gap in service",
 
 test_that("count_fresh_entrants does not double-count same person with overlapping episodes", {
   # Same person with two episodes both covering today
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "A"),
     c("2019-10-21", "2019-10-21"),
     c("2023-01-01", "2023-06-01")
@@ -761,7 +761,7 @@ test_that("count_fresh_entrants does not double-count same person with overlappi
 # ==================================================================
 
 test_that("count_midterm_attrition counts MPs who left between elections", {
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B", "C"),
     c("2019-10-22", "2019-10-22", "2019-10-22"),
     c("2021-03-15", "2023-09-19", "2023-09-19")  # A leaves mid-term, B and C stay
@@ -771,7 +771,7 @@ test_that("count_midterm_attrition counts MPs who left between elections", {
 })
 
 test_that("count_midterm_attrition returns 0 when nobody leaves", {
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B"),
     c("2019-10-22", "2019-10-22"),
     c("2023-09-19", "2023-09-19")  # both stay until the day before next election
@@ -781,7 +781,7 @@ test_that("count_midterm_attrition returns 0 when nobody leaves", {
 })
 
 test_that("count_midterm_attrition returns NA when dates are NA", {
-  eps <- mk_gender_episodes("A", "2019-10-22", "2023-01-01")
+  eps <- mk_group_episodes("A", "2019-10-22", "2023-01-01")
   expect_true(is.na(count_midterm_attrition(as.Date(NA), as.Date("2023-09-20"), eps)))
   expect_true(is.na(count_midterm_attrition(as.Date("2019-10-21"), as.Date(NA), eps)))
 })
@@ -789,7 +789,7 @@ test_that("count_midterm_attrition returns NA when dates are NA", {
 test_that("count_midterm_attrition excludes MPs who left on election day boundary", {
   # MP's episode ends on the day before the next election (dissolution)
   # This is NOT attrition — it's a normal end of term
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B"),
     c("2019-10-22", "2019-10-22"),
     c("2023-09-19", "2022-06-15")  # A stays to end, B leaves mid-term
@@ -799,7 +799,7 @@ test_that("count_midterm_attrition excludes MPs who left on election day boundar
 })
 
 test_that("count_midterm_attrition works with data.table input", {
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B", "C"),
     c("2019-10-22", "2019-10-22", "2019-10-22"),
     c("2020-06-01", "2023-09-19", "2023-09-19")
@@ -814,7 +814,7 @@ test_that("count_midterm_attrition works with data.table input", {
 # ==================================================================
 
 test_that("count_midterm_reinforcements counts MPs who entered mid-term", {
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B", "C"),
     c("2019-10-22", "2021-03-15", "2019-10-22"),  # B enters mid-term
     c("2023-09-19", "2023-09-19", "2023-09-19")
@@ -824,7 +824,7 @@ test_that("count_midterm_reinforcements counts MPs who entered mid-term", {
 })
 
 test_that("count_midterm_reinforcements returns 0 when no mid-term entries", {
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B"),
     c("2019-10-22", "2019-10-22"),
     c("2023-09-19", "2023-09-19")
@@ -834,14 +834,14 @@ test_that("count_midterm_reinforcements returns 0 when no mid-term entries", {
 })
 
 test_that("count_midterm_reinforcements returns NA when dates are NA", {
-  eps <- mk_gender_episodes("A", "2021-03-15", "2023-09-19")
+  eps <- mk_group_episodes("A", "2021-03-15", "2023-09-19")
   expect_true(is.na(count_midterm_reinforcements(as.Date(NA), as.Date("2023-09-20"), eps)))
   expect_true(is.na(count_midterm_reinforcements(as.Date("2019-10-21"), as.Date(NA), eps)))
 })
 
 test_that("count_midterm_reinforcements excludes MPs who entered and left mid-term", {
   # D enters mid-term but leaves before the next election — not a reinforcement
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "D"),
     c("2019-10-22", "2021-03-15"),
     c("2023-09-19", "2022-06-01")  # D leaves before next election
@@ -851,7 +851,7 @@ test_that("count_midterm_reinforcements excludes MPs who entered and left mid-te
 })
 
 test_that("count_midterm_reinforcements works with data.table input", {
-  eps <- mk_gender_episodes(
+  eps <- mk_group_episodes(
     c("A", "B"),
     c("2019-10-22", "2021-06-01"),
     c("2023-09-19", "2023-09-19")

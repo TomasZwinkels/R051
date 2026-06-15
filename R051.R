@@ -7,6 +7,15 @@ setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 USE_SYNTHETIC <- FALSE # Set to TRUE to load synthetic Slowjamistan data for testing
 force_recalculate <- FALSE # Set to TRUE to force recalculation of daily counts (ignores cache)
 country_code <- "US"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway), "US" (United States)
+
+# Trait configuration: which binary characteristic to track over time
+# The script splits all MPs into a "focal group" and its complement,
+# then tracks the focal group's proportion daily.
+trait_column     <- "gender"   # column name in POLI to split on
+focal_value      <- "f"        # value that defines the focal group
+focal_label      <- "Women"    # human-readable label for focal group
+complement_label <- "Men"      # human-readable label for complement
+trait_name       <- "Gender"   # used in graph title and filename
 country_name <- switch(
   country_code,
   "CA" = "Canada",
@@ -120,33 +129,36 @@ if (nrow(PARL) == 0) {
 # Filter again for parliamentary episodes in selected country
 RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01","NT_LE_T3_NA_09")),]
 
-# Merge with POLI to get gender info
+# Merge with POLI to get trait info
 RESEBU <- RESE %>%
   left_join(
-    POLI %>% select(pers_id, gender, birth_date),
+    POLI %>% select(pers_id, all_of(trait_column)),
     by = "pers_id"
   )
 
-# Clean gender values
-RESEBU$gender[which(RESEBU$gender == "tf")] <- "f"
-RESEBU$gender[which(RESEBU$gender == "tm")] <- "m"
+# For gender trait, clean tf/tm values
+if (trait_column == "gender") {
+  RESEBU$gender[which(RESEBU$gender == "tf")] <- "f"
+  RESEBU$gender[which(RESEBU$gender == "tm")] <- "m"
+}
+
+# Create binary focal group flag
+RESEBU$is_focal <- RESEBU[[trait_column]] == focal_value
 
 # Focus on relevant variables
-RESEBU <- RESEBU %>% 
-            select(res_entry_id, pers_id, gender, res_entry_start_dateformat, res_entry_end_dateformat)
+RESEBU <- RESEBU %>%
+            select(res_entry_id, pers_id, is_focal, res_entry_start_dateformat, res_entry_end_dateformat)
 nrow(RESEBU)
 head(RESEBU)
 
-# Separate by gender
-RESEBU_MALE <- RESEBU[which(RESEBU$gender == "m"),]
-RESEBU_FEMALE <- RESEBU[which(RESEBU$gender == "f"),]
-RESEBU_NB <- RESEBU[which(RESEBU$gender == "nb"),]
+# Separate into focal group and complement
+RESEBU_FOCAL <- RESEBU[which(RESEBU$is_focal == TRUE), ]
+RESEBU_COMPLEMENT <- RESEBU[which(RESEBU$is_focal == FALSE), ]
 
 # Convert to data.table
 setDT(RESEBU)
-setDT(RESEBU_MALE)
-setDT(RESEBU_FEMALE)
-setDT(RESEBU_NB)
+setDT(RESEBU_FOCAL)
+setDT(RESEBU_COMPLEMENT)
 
 # Create sequence of all days - start from first parliamentary term we have data on
 parl_start_date <- min(PARL$leg_period_start_dateformat, na.rm = TRUE)
@@ -166,8 +178,9 @@ if (USE_SYNTHETIC) {
 } else {
   current_data_version <- trimws(readLines("/home/tomas/projects/PCCdata/dataversion.txt")[1])
 }
-version_file <- paste0("dataversion_latest_run_", country_code, ".txt")
-cache_file <- paste0("daily_counts_cache_", country_code, ".RData")
+trait_key <- tolower(gsub(" ", "_", trait_name))
+version_file <- paste0("dataversion_latest_run_", country_code, "_", trait_key, ".txt")
+cache_file <- paste0("daily_counts_cache_", country_code, "_", trait_key, ".RData")
 
 # Check if we need to recalculate or can load from cache
 recalculate_needed <- FALSE  # Reset flag
@@ -200,26 +213,26 @@ if (recalculate_needed) {
                      uniqueN(pers_id)]
   ), by = thisday]
 
-  DAILY_COUNTS_MALE <- days_dt[, .(
-    pol_m = RESEBU_MALE[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
+  DAILY_COUNTS_COMPLEMENT <- days_dt[, .(
+    pol_complement = RESEBU_COMPLEMENT[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
                         uniqueN(pers_id)]
   ), by = thisday]
 
-  DAILY_COUNTS_FEMALE <- days_dt[, .(
-    pol_f = RESEBU_FEMALE[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
+  DAILY_COUNTS_FOCAL <- days_dt[, .(
+    pol_focal = RESEBU_FOCAL[thisday >= res_entry_start_dateformat & thisday <= res_entry_end_dateformat,
                           uniqueN(pers_id)]
   ), by = thisday]
 
   # Merge all by thisday
   DAILY_COUNTS <- Reduce(function(x, y) merge(x, y, by = "thisday", all = TRUE),
-                        list(DAILY_COUNTS_ALL, DAILY_COUNTS_MALE, DAILY_COUNTS_FEMALE)
+                        list(DAILY_COUNTS_ALL, DAILY_COUNTS_COMPLEMENT, DAILY_COUNTS_FOCAL)
   )
 
   # Calculate proportions
-  DAILY_COUNTS[, proportion_female := pol_f / pol_all]
-  
+  DAILY_COUNTS[, proportion_focal := pol_focal / pol_all]
+
   # Save cache and update version file
-  save(DAILY_COUNTS_ALL, DAILY_COUNTS_MALE, DAILY_COUNTS_FEMALE, DAILY_COUNTS, file = cache_file)
+  save(DAILY_COUNTS_ALL, DAILY_COUNTS_COMPLEMENT, DAILY_COUNTS_FOCAL, DAILY_COUNTS, file = cache_file)
   writeLines(current_data_version, version_file)
   
   cat("Daily counts calculation completed and cached.\n")
@@ -240,14 +253,14 @@ parl_starts <- sort(parl_starts)
 # =============================================================================
 # Calculate "election-only" fluctuations using data-driven cohort change days
 #
-# Goal: build the green "Election vs. Mid-Term" line in the graph. This line
-# shows what women's representation would look like if only election-related
-# changes mattered (ignoring mid-term resignations, deaths, by-elections).
+# Goal: build the green "Election-Only Trend" line in the graph. This line
+# shows what the focal group's representation would look like if only
+# election-related changes mattered (ignoring mid-term changes).
 #
 # Approach:
 #   1. For each parliament, find the "cohort change day" — the single day with
 #      the most MP entries + departures. This is data-driven (no n_days window).
-#   2. Measure % women the day before and day after the cohort change day.
+#   2. Measure % focal group the day before and day after the cohort change day.
 #   3. The difference is the "election jump" — the change attributable to that
 #      election.
 #   4. Accumulate these jumps to build a running total (the green step line).
@@ -268,31 +281,31 @@ term_starts[, new_cohort_day := as.Date(sapply(parliament_id, function(pid) {
 cat("\n=== Cohort change days ===\n")
 print(as.data.frame(term_starts))
 
-# Step 2a: Get % women on the day BEFORE each cohort change day.
+# Step 2a: Get % focal group on the day BEFORE each cohort change day.
 # This represents the composition of the outgoing parliament, just before
 # the election turnover happens.
 BEFORE <- term_starts[!is.na(new_cohort_day), .(
   parliament_id, term_start, new_cohort_day,
   target_day = new_cohort_day - 1
 )]
-BEFORE <- merge(BEFORE, DAILY_COUNTS[, .(thisday, pol_all, pol_f, proportion_female)],
+BEFORE <- merge(BEFORE, DAILY_COUNTS[, .(thisday, pol_all, pol_focal, proportion_focal)],
                 by.x = "target_day", by.y = "thisday", all.x = TRUE)
-BEFORE[, pct_before := round(proportion_female * 100, 3)]
+BEFORE[, pct_before := round(proportion_focal * 100, 3)]
 
-# Step 2b: Get % women on the day AFTER each cohort change day.
+# Step 2b: Get % focal group on the day AFTER each cohort change day.
 # This represents the composition of the incoming parliament, just after
 # the election turnover has settled.
 AFTER <- term_starts[!is.na(new_cohort_day), .(
   parliament_id, new_cohort_day,
   target_day = new_cohort_day + 1
 )]
-AFTER <- merge(AFTER, DAILY_COUNTS[, .(thisday, pol_all, pol_f, proportion_female)],
+AFTER <- merge(AFTER, DAILY_COUNTS[, .(thisday, pol_all, pol_focal, proportion_focal)],
                by.x = "target_day", by.y = "thisday", all.x = TRUE)
-AFTER[, pct_after := round(proportion_female * 100, 3)]
+AFTER[, pct_after := round(proportion_focal * 100, 3)]
 
 # Step 3: Calculate the "election jump" for each parliament.
 # election_jumps = pct_after - pct_before: how much did this election change
-# the proportion of women? Positive = more women after, negative = fewer.
+# the focal group proportion? Positive = more after, negative = fewer.
 DELTA <- merge(
   BEFORE[, .(parliament_id, term_start, new_cohort_day, pct_before)],
   AFTER[, .(parliament_id, pct_after)],
@@ -308,7 +321,7 @@ if(!nrow(DELTA) == length(unique(DELTA$parliament_id))) {
 # Step 4: Build the running total (the green step line).
 # Start from the first parliament's "after" percentage, then add each
 # subsequent election jump. This shows the cumulative effect of elections
-# on women's representation, stripping out all mid-term noise.
+# on focal group representation, stripping out all mid-term noise.
 # Use the first non-NA pct_after as starting point (the first parliament's
 # cohort day may fall before DAILY_COUNTS begins, giving NA)
 startpercentage <- DELTA$pct_after[which(!is.na(DELTA$pct_after))[1]]
@@ -322,7 +335,7 @@ DELTA$running_average_election_only <- startpercentage + cumsum(election_jumps_c
 # Election-to-election trend: how are election outcomes themselves trending?
 # Uses pct_after(this election) - pct_after(previous election), ignoring
 # all mid-term dynamics. Shows whether successive elections are getting
-# better or worse for women.
+# better or worse for the focal group.
 election_to_election_jumps <- c(NA, diff(DELTA$pct_after))
 election_to_election_jumps[is.na(election_to_election_jumps)] <- 0
 DELTA$running_election_to_election <- startpercentage + cumsum(election_to_election_jumps)
@@ -394,57 +407,57 @@ parl_transitions <- as.data.frame(term_starts[, list(parliament_id, new_cohort_d
 
 # Add MP counts on the cohort change day from DAILY_COUNTS
 parl_transitions <- merge(parl_transitions,
-  as.data.frame(DAILY_COUNTS[, list(thisday, pol_all, pol_f, pol_m)]),
+  as.data.frame(DAILY_COUNTS[, list(thisday, pol_all, pol_focal, pol_complement)]),
   by.x = "new_cohort_day", by.y = "thisday", all.x = TRUE)
 names(parl_transitions)[names(parl_transitions) == "pol_all"] <- "seated_total"
-names(parl_transitions)[names(parl_transitions) == "pol_f"] <- "seated_f"
-names(parl_transitions)[names(parl_transitions) == "pol_m"] <- "seated_m"
+names(parl_transitions)[names(parl_transitions) == "pol_focal"] <- "seated_focal"
+names(parl_transitions)[names(parl_transitions) == "pol_complement"] <- "seated_complement"
 
 # Count fresh entrants on the cohort day (functions from R051_functions.R)
-parl_transitions$entered_at_election_f <- sapply(parl_transitions$new_cohort_day,
-  count_fresh_entrants, gender_episodes = RESEBU_FEMALE)
+parl_transitions$entered_at_election_focal <- sapply(parl_transitions$new_cohort_day,
+  count_fresh_entrants, group_episodes = RESEBU_FOCAL)
 
-parl_transitions$entered_at_election_m <- sapply(parl_transitions$new_cohort_day,
-  count_fresh_entrants, gender_episodes = RESEBU_MALE)
+parl_transitions$entered_at_election_complement <- sapply(parl_transitions$new_cohort_day,
+  count_fresh_entrants, group_episodes = RESEBU_COMPLEMENT)
 
-parl_transitions$entered_at_election_total = parl_transitions$entered_at_election_f + parl_transitions$entered_at_election_m
+parl_transitions$entered_at_election_total = parl_transitions$entered_at_election_focal + parl_transitions$entered_at_election_complement
 
 # Count mid-term attrition: seated after this election but gone before the next
 next_cohort_days <- c(parl_transitions$new_cohort_day[-1], NA)
 
-parl_transitions$attrition_f <- mapply(count_midterm_attrition,
+parl_transitions$attrition_focal <- mapply(count_midterm_attrition,
   parl_transitions$new_cohort_day, next_cohort_days,
-  MoreArgs = list(gender_episodes = RESEBU_FEMALE))
+  MoreArgs = list(group_episodes = RESEBU_FOCAL))
 
-parl_transitions$attrition_m <- mapply(count_midterm_attrition,
+parl_transitions$attrition_complement <- mapply(count_midterm_attrition,
   parl_transitions$new_cohort_day, next_cohort_days,
-  MoreArgs = list(gender_episodes = RESEBU_MALE))
+  MoreArgs = list(group_episodes = RESEBU_COMPLEMENT))
 
-parl_transitions$attrition_total = parl_transitions$attrition_f + parl_transitions$attrition_m
+parl_transitions$attrition_total = parl_transitions$attrition_focal + parl_transitions$attrition_complement
 
-# Gender-specific attrition rate: what % of women/men seated at the start left mid-term
-# e.g. 98 women seated, 1 left → 1.0%; NA when no one of that gender was seated
-parl_transitions$attrition_pct_f <- ifelse(
-  is.na(parl_transitions$attrition_f) | parl_transitions$seated_f == 0,
+# Group-specific attrition rate: what % of focal/complement group seated at the start left mid-term
+# e.g. 98 focal seated, 1 left → 1.0%; NA when no one of that group was seated
+parl_transitions$attrition_pct_focal <- ifelse(
+  is.na(parl_transitions$attrition_focal) | parl_transitions$seated_focal == 0,
   NA_real_,
-  round(100 * parl_transitions$attrition_f / parl_transitions$seated_f, 1))
+  round(100 * parl_transitions$attrition_focal / parl_transitions$seated_focal, 1))
 
-parl_transitions$attrition_pct_m <- ifelse(
-  is.na(parl_transitions$attrition_m) | parl_transitions$seated_m == 0,
+parl_transitions$attrition_pct_complement <- ifelse(
+  is.na(parl_transitions$attrition_complement) | parl_transitions$seated_complement == 0,
   NA_real_,
-  round(100 * parl_transitions$attrition_m / parl_transitions$seated_m, 1))
+  round(100 * parl_transitions$attrition_complement / parl_transitions$seated_complement, 1))
 
 # Count mid-term reinforcements: MPs who were NOT seated after this election
 # but ARE seated before the next election (e.g. by-election winners, etc.)
-parl_transitions$reinforcements_f <- mapply(count_midterm_reinforcements,
+parl_transitions$reinforcements_focal <- mapply(count_midterm_reinforcements,
   parl_transitions$new_cohort_day, next_cohort_days,
-  MoreArgs = list(gender_episodes = RESEBU_FEMALE))
+  MoreArgs = list(group_episodes = RESEBU_FOCAL))
 
-parl_transitions$reinforcements_m <- mapply(count_midterm_reinforcements,
+parl_transitions$reinforcements_complement <- mapply(count_midterm_reinforcements,
   parl_transitions$new_cohort_day, next_cohort_days,
-  MoreArgs = list(gender_episodes = RESEBU_MALE))
+  MoreArgs = list(group_episodes = RESEBU_COMPLEMENT))
 
-parl_transitions$reinforcements_total = parl_transitions$reinforcements_f + parl_transitions$reinforcements_m
+parl_transitions$reinforcements_total = parl_transitions$reinforcements_focal + parl_transitions$reinforcements_complement
 
 # Check: does every mid-term departure get replaced?
 # attrition - reinforcements should equal the drop in parliament size between
@@ -454,38 +467,43 @@ parl_transitions$unfilled_vacancies <- ifelse(
   NA_integer_,
   parl_transitions$attrition_total - parl_transitions$reinforcements_total)
 
-# Reinforcement bias: are by-elections disproportionately replacing with women?
-# Compares the female share of reinforcements to the female share of seated MPs.
-# Positive = by-elections favored women beyond their existing representation.
+# Reinforcement bias: are by-elections disproportionately replacing with focal group?
+# Compares the focal group share of reinforcements to the focal group share of seated MPs.
+# Positive = by-elections favored focal group beyond their existing representation.
 # Zero = neutral (replacements mirror existing composition).
-# Negative = by-elections disfavored women.
-parl_transitions$reinforcement_bias_f <- ifelse(
+# Negative = by-elections disfavored focal group.
+parl_transitions$reinforcement_bias_focal <- ifelse(
   is.na(parl_transitions$reinforcements_total) | parl_transitions$reinforcements_total == 0 |
   is.na(parl_transitions$seated_total) | parl_transitions$seated_total == 0,
   NA_real_,
   round(
-    100 * parl_transitions$reinforcements_f / parl_transitions$reinforcements_total -
-    100 * parl_transitions$seated_f / parl_transitions$seated_total,
+    100 * parl_transitions$reinforcements_focal / parl_transitions$reinforcements_total -
+    100 * parl_transitions$seated_focal / parl_transitions$seated_total,
   1))
 
 print(parl_transitions)
 
 # Summary statistics for graph annotation
-avg_attrition_f <- round(mean(parl_transitions$attrition_pct_f, na.rm = TRUE), 1)
-sd_attrition_f <- round(sd(parl_transitions$attrition_pct_f, na.rm = TRUE), 1)
-avg_attrition_m <- round(mean(parl_transitions$attrition_pct_m, na.rm = TRUE), 1)
-sd_attrition_m <- round(sd(parl_transitions$attrition_pct_m, na.rm = TRUE), 1)
-avg_reinforcement_bias_f <- round(mean(parl_transitions$reinforcement_bias_f, na.rm = TRUE), 1)
-sd_reinforcement_bias_f <- round(sd(parl_transitions$reinforcement_bias_f, na.rm = TRUE), 1)
+avg_attrition_focal <- round(mean(parl_transitions$attrition_pct_focal, na.rm = TRUE), 1)
+sd_attrition_focal <- round(sd(parl_transitions$attrition_pct_focal, na.rm = TRUE), 1)
+avg_attrition_complement <- round(mean(parl_transitions$attrition_pct_complement, na.rm = TRUE), 1)
+sd_attrition_complement <- round(sd(parl_transitions$attrition_pct_complement, na.rm = TRUE), 1)
+avg_reinforcement_bias_focal <- round(mean(parl_transitions$reinforcement_bias_focal, na.rm = TRUE), 1)
+sd_reinforcement_bias_focal <- round(sd(parl_transitions$reinforcement_bias_focal, na.rm = TRUE), 1)
 
-summary_text <- sprintf(
-  "Avg. mid-term attrition rate:\n  Women: %.1f%% (SD=%.1f)   Men: %.1f%% (SD=%.1f)\nAvg. reinforcement bias (women): %.1f%% (SD=%.1f)\n  (%% women among replacements minus\n   %% women seated at start of term;\n   positive = mid-term replacements favor women)",
-  avg_attrition_f, sd_attrition_f, avg_attrition_m, sd_attrition_m,
-  avg_reinforcement_bias_f, sd_reinforcement_bias_f
+summary_text <- paste0(
+  "Avg. mid-term attrition rate:\n",
+  "  ", focal_label, ": ", avg_attrition_focal, "% (SD=", sd_attrition_focal, ")",
+  "   ", complement_label, ": ", avg_attrition_complement, "% (SD=", sd_attrition_complement, ")\n",
+  "Avg. reinforcement bias (", tolower(focal_label), "): ",
+  avg_reinforcement_bias_focal, "% (SD=", sd_reinforcement_bias_focal, ")\n",
+  "  (% ", tolower(focal_label), " among replacements minus\n",
+  "   % ", tolower(focal_label), " seated at start of term;\n",
+  "   positive = mid-term replacements favor ", tolower(focal_label), ")"
 )
 cat("\n", summary_text, "\n")
 
-mean(parl_transitions$reinforcement_bias_f,na.rm=TRUE)
+mean(parl_transitions$reinforcement_bias_focal,na.rm=TRUE)
 
 # X-axis date limits (set to NULL for full range, or a Date vector to zoom)
 x_date_limits <- as.Date(c("1945-01-01", "2027-12-31"))
@@ -506,7 +524,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
             aes(x = start_date, y = baseline_size / max(DAILY_COUNTS$pol_all, na.rm = TRUE), 
                 color = "Parliament Size Baseline"), 
             linewidth = 1.0) +
-  geom_line(aes(y = proportion_female, color = "Daily Women %"), linewidth = 0.8) +
+  geom_line(aes(y = proportion_focal, color = paste0("Daily ", focal_label, " %")), linewidth = 0.8) +
   geom_step(data = DELTA,
             aes(x = new_cohort_day, y = running_average_election_only / 100,
                 color = "Election-Only Trend"),
@@ -537,7 +555,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     labels = function(x) round(x * max(DAILY_COUNTS$pol_all, na.rm = TRUE)),
     sec.axis = sec_axis(
       ~ ., 
-      name = "Proportion of Women",
+      name = paste0("Proportion of ", focal_label),
       breaks = seq(0, 1, 0.2),
       labels = scales::percent_format()
     )
@@ -547,7 +565,10 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     limits = x_date_limits
   ) +
   scale_color_manual(
-    values = c("Daily Women %" = "red", "Total MPs" = "blue", "Parliament Size Baseline" = "black", "Election-Only Trend" = "green"),
+    values = setNames(
+      c("red", "blue", "black", "green"),
+      c(paste0("Daily ", focal_label, " %"), "Total MPs", "Parliament Size Baseline", "Election-Only Trend")
+    ),
     name = "Measures"
   ) +
   theme_minimal(base_size = 18) +
@@ -557,7 +578,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
     legend.position = "top",
     plot.caption = element_text(size = 8, family = "mono", hjust = 0)
   ) +
-  ggtitle(paste("Women's Representation and Parliament Size in", country_name, "Over Time")) +
+  ggtitle(paste0(focal_label, " Representation and Parliament Size in ", country_name, " Over Time")) +
   labs(caption = {
     caption_text <- paste0("Generated on: ",
       format(Sys.time(), "%Y-%m-%d at %H:%M:%S"))
@@ -578,7 +599,7 @@ p_simple <- ggplot(DAILY_COUNTS, aes(x = thisday)) +
 # Plot created successfully!
 
 # Save the plot
-plot_filename <- paste0("women_representation_simplified_", country_code, ".png")
+plot_filename <- paste0("representation_", tolower(gsub(" ", "_", trait_name)), "_", country_code, ".png")
 ggsave(plot_filename, plot = p_simple, width = 16, height = 8, dpi = 150, bg = "white")
 cat("Plot saved as", plot_filename, "with double width!\n")
 
