@@ -7,7 +7,7 @@ setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 USE_SYNTHETIC <- FALSE # Set to TRUE to load synthetic Slowjamistan data for testing
 force_recalculate <- FALSE # Set to TRUE to force recalculation of daily counts (ignores cache)
 show_mp_lines <- TRUE # Set to TRUE to show Total MPs and Parliament Size Baseline lines
-country_code <- "US"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway), "US" (United States)
+country_code <- "NL"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway), "US" (United States)
 
 # Trait configuration: which binary characteristic to track over time
 # The script splits all MPs into a "focal group" and its complement,
@@ -102,10 +102,16 @@ check_RESE_anynear_fulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
 if( check_RESE_persid_in_POLI(RESE,POLI) == FALSE||
     check_RESE_resentryid_unique(RESE)==FALSE||
     check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE))==TRUE||
-    check_RESE_anynear_fulloverlap(preprocess_RESEdates(RESE))==TRUE 
+    check_RESE_anynear_fulloverlap(preprocess_RESEdates(RESE))==TRUE
   )
 {
-RESE <- NULL
+stop("One or more RESE integrity checks failed. RESE set to NULL.\n",
+     "Run the R047 deepdive script for country '", country_code,
+     "' to investigate the data quality issue.\n",
+     "  persid_in_POLI: ", check_RESE_persid_in_POLI(RESE,POLI), "\n",
+     "  resentryid_unique: ", check_RESE_resentryid_unique(RESE), "\n",
+     "  no_full_overlaps: ", !check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE)), "\n",
+     "  no_near_overlaps: ", !check_RESE_anynear_fulloverlap(preprocess_RESEdates(RESE)))
 }
 nrow(RESE)
 
