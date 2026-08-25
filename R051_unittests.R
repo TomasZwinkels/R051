@@ -860,3 +860,64 @@ test_that("count_midterm_reinforcements works with data.table input", {
   result <- count_midterm_reinforcements(as.Date("2019-10-21"), as.Date("2023-09-20"), eps)
   expect_equal(result, 1L)
 })
+
+# ------------------------------------------------------------
+# Fluctuating parliament_size: ';'-separated values (issue #20).
+# Helpers are duplicated from R047_PARL_functions.R; verify parity here and that
+# an expanded parl_baseline yields the right per-side baseline in the detector.
+# ------------------------------------------------------------
+
+test_that("is_valid_parliament_size accepts single and ';'-separated positive ints", {
+  expect_true(all(is_valid_parliament_size(c("518", "519;663", "12;13;14;15"))))
+  expect_false(any(is_valid_parliament_size(c("519;abc", "519;0", "0", "", NA))))
+})
+
+test_that("parse_parliament_size_series splits at the registered changeover date", {
+  res <- parse_parliament_size_series("DE_NT-BT_1987",
+           as.Date("1987-02-18"), as.Date("1990-12-19"), "519;663")
+  expect_equal(nrow(res), 2)
+  expect_equal(res$size, c(519L, 663L))
+  expect_equal(res$seg_end[1],   as.Date("1990-10-02"))  # midnight rule
+  expect_equal(res$seg_start[2], as.Date("1990-10-03"))
+})
+
+test_that("parse_parliament_size_series stops when a changeover date is missing", {
+  expect_error(
+    parse_parliament_size_series("DE_NT-BT_9999",
+      as.Date("1987-02-18"), as.Date("1990-12-19"), "519;663"),
+    "changes mid-term"
+  )
+})
+
+test_that("expanded parl_baseline gives the correct baseline on each side of the change", {
+  # Mimic the R051.R parl_baseline build for one fluctuating term.
+  PARL <- data.table(
+    parliament_id = "DE_NT-BT_1987",
+    leg_period_start_dateformat = as.Date("1987-02-18"),
+    leg_period_end_dateformat   = as.Date("1990-12-19"),
+    parliament_size = "519;663"
+  )
+  parl_baseline <- rbindlist(lapply(seq_len(nrow(PARL)), function(i) {
+    segs <- parse_parliament_size_series(
+      PARL$parliament_id[i], PARL$leg_period_start_dateformat[i],
+      PARL$leg_period_end_dateformat[i], PARL$parliament_size[i])
+    data.table(parliament_id = segs$parliament_id, start_date = segs$seg_start,
+               end_date = segs$seg_end, baseline_size = as.numeric(segs$size))
+  }))[order(start_date)]
+
+  expect_equal(nrow(parl_baseline), 2)
+  expect_equal(parl_baseline$baseline_size, c(519, 663))
+
+  # 519 seated throughout -> pre-reunification normal, post shows -144 (too low)
+  daily <- data.table(
+    thisday = seq(as.Date("1987-02-18"), as.Date("1990-12-19"), by = "day"))
+  daily[, pol_all := 519]
+  res <- detect_parliament_deviations(daily, parl_baseline,
+           seat_threshold = 5, duration_threshold_days = 30)
+  # exactly the post-change stretch is flagged structurally_too_low
+  expect_true(any(res$deviation_type == "structurally_too_low"))
+  expect_false(any(res$deviation_type == "structurally_too_high"))
+  low <- res[deviation_type == "structurally_too_low"]
+  expect_equal(low$start_date, as.Date("1990-10-03"))
+  expect_equal(low$max_deviation, 144)
+})

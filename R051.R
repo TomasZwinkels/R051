@@ -7,7 +7,7 @@ setwd("/home/tomas/projects/ProjectR051_NewDaybyDay")
 USE_SYNTHETIC <- FALSE # Set to TRUE to load synthetic Slowjamistan data for testing
 force_recalculate <- FALSE # Set to TRUE to force recalculation of daily counts (ignores cache)
 show_mp_lines <- TRUE # Set to TRUE to show Total MPs and Parliament Size Baseline lines
-country_code <- "NL"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway), "US" (United States)
+country_code <- "NO"  # Options: "CA" (Canada), "CH" (Switzerland), "DE" (Germany), "NL" (Netherlands), "NO" (Norway), "US" (United States)
 
 # Trait configuration: which binary characteristic to track over time
 # The script splits all MPs into a "focal group" and its complement,
@@ -91,7 +91,7 @@ check_RESE_persid_in_POLI(RESE,POLI) # should return TRUE
 check_RESE_resentryid_unique(RESE) # should return TRUE
 
 # Focus on parliamentary membership
-RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09")),]
+RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09", "NT_LE_T3_NA_11")),]
 nrow(RESE)
 
 check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
@@ -157,7 +157,7 @@ if (nrow(PARL) == 0) {
 }
 
 # Filter again for parliamentary episodes in selected country
-RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01","NT_LE_T3_NA_09")),]
+RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01","NT_LE_T3_NA_09", "NT_LE_T3_NA_11")),]
 
 # Merge with POLI to get trait info
 RESEBU <- RESE %>%
@@ -381,15 +381,26 @@ parl_years <- data.frame(
   year = format(parl_starts, "%Y")
 )
 
-# Create parliament size baseline for integrity checking
-# Convert parliament_size to numeric and create step function data
+# Create parliament size baseline for integrity checking.
+# parliament_size may be ';'-separated (fluctuating seats within a term, e.g.
+# DE_NT-BT_1987 "519;663" across reunification). Expand each term into one row
+# per sub-period via parse_parliament_size_series(); it STOPS with an actionable
+# error if a fluctuating term is missing its changeover date in SIZE_CHANGE_DATES.
 setDT(PARL)
-parl_baseline <- PARL[, .(
-  parliament_id,
-  start_date = leg_period_start_dateformat,
-  end_date = leg_period_end_dateformat,
-  baseline_size = as.numeric(parliament_size)
-)][order(start_date)]
+parl_baseline <- rbindlist(lapply(seq_len(nrow(PARL)), function(i) {
+  segs <- parse_parliament_size_series(
+    PARL$parliament_id[i],
+    PARL$leg_period_start_dateformat[i],
+    PARL$leg_period_end_dateformat[i],
+    PARL$parliament_size[i]
+  )
+  data.table(
+    parliament_id = segs$parliament_id,
+    start_date    = segs$seg_start,
+    end_date      = segs$seg_end,
+    baseline_size = as.numeric(segs$size)
+  )
+}))[order(start_date)]
 
 # Get deviation periods for highlighting
 deviation_periods <- detect_parliament_deviations(DAILY_COUNTS, parl_baseline, seat_threshold = 5, duration_threshold_days = 90, merge_gap_days = 7)
