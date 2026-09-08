@@ -184,18 +184,23 @@ count_mp_transitions <- function(from_date, to_date, direction, gender,
 ###############################################################################
 # Function: find_new_cohort_day
 # Description:
-#   For a given parliament, find the day with the most MP entries (inflow
-#   only, ignoring departures). This is the data-driven "cohort change day"
+#   For a given parliament, find the day with the most distinct people becoming
+#   present after being absent the day before (inflow only, ignoring departures).
+#   Adjacent or overlapping episodes for the same person are continuous service
+#   and do not create another entry. This is the data-driven "cohort change day"
 #   — typically the day the new parliament is seated.
 #
 # Inputs:
 #   - parliament_id: e.g. "CA_NT-HC_2019"
-#   - RESE: raw RESE data.frame (country-filtered, parliamentary functions only)
+#   - RESE: raw RESE data.frame with pers_id (filtered to one chamber's
+#     parliamentary functions; retain earlier episodes for continuity checks)
 #   - PARL: raw PARL data.frame (with leg_period_start/end_dateformat columns)
 #
 # Returns:
-#   A Date: the day with the most MP entries within the search window.
-#   NA if no transitions found.
+#   A Date: the day with the most distinct-person entries within the search
+#   window; the earliest date wins ties. NA if no entries found.
+#   Missing person IDs are an error. Invalid date intervals are warned about
+#   and ignored; censoring markers retain their recorded date bounds.
 ###############################################################################
 find_new_cohort_day <- function(parliament_id, RESE, PARL) {
   # Look up parliament start and end dates
@@ -210,8 +215,8 @@ find_new_cohort_day <- function(parliament_id, RESE, PARL) {
   }
 
   # Search window: from midpoint of previous parliament to midpoint of this one.
-  # This ensures the election day (which falls between parliament end and session
-  # start) is always captured, regardless of the gap size.
+  # This allows entries before the new parliament's session start to be found.
+  # It remains a heuristic window, not an official election-date lookup.
   term_start <- parl_df$leg_period_start_dateformat[parl_idx]
   term_end <- parl_df$leg_period_end_dateformat[parl_idx]
   if (is.na(term_end)) term_end <- Sys.Date()
@@ -234,11 +239,31 @@ find_new_cohort_day <- function(parliament_id, RESE, PARL) {
   starts <- as.Date(gsub("\\[\\[.*\\]\\]", "", RESE$res_entry_start), format = "%d%b%Y")
   ends <- as.Date(gsub("\\[\\[.*\\]\\]", "", RESE$res_entry_end), format = "%d%b%Y")
 
-  # Collect entry dates within the search window (inflow only)
-  entry_dates <- starts[!is.na(starts) & starts >= search_from & starts <= search_to]
+  if (is.null(RESE$pers_id) || anyNA(RESE$pers_id) ||
+      any(trimws(as.character(RESE$pers_id)) == "")) {
+    stop("find_new_cohort_day requires a non-missing pers_id for every RESE episode")
+  }
+  valid <- !is.na(starts) & !is.na(ends) & ends >= starts
+  if (any(!valid)) {
+    warning("Ignoring RESE episodes with missing/invalid dates or an end before the start")
+  }
+  if (!any(valid)) return(as.Date(NA))
+
+  # Find the beginning of each person's continuous service using all episodes,
+  # including those starting before the search window. End dates are inclusive:
+  # a new row starting one day after a previous end is still continuous service.
+  # The running maximum handles nested overlaps as well as adjacent rows and
+  # ensures simultaneous starts for one person contribute only one entry.
+  entry_days <- unlist(lapply(split(which(valid), RESE$pers_id[valid], drop = TRUE), function(idx) {
+    idx <- idx[order(starts[idx])]
+    previous_end <- c(-Inf, head(cummax(as.numeric(ends[idx])), -1L))
+    as.numeric(starts[idx])[as.numeric(starts[idx]) > previous_end + 1]
+  }), use.names = FALSE)
+  entry_dates <- as.Date(entry_days, origin = "1970-01-01")
+  entry_dates <- entry_dates[entry_dates >= search_from & entry_dates <= search_to]
   if (length(entry_dates) == 0) return(as.Date(NA))
 
-  # Find the date with the most MP entries
+  # Find the date with the most distinct-person entries
   date_counts <- table(entry_dates)
   peak_date <- as.Date(names(which.max(date_counts)))
 

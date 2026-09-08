@@ -292,7 +292,8 @@ parl_starts <- sort(parl_starts)
 #
 # Approach:
 #   1. For each parliament, find the "cohort change day" — the single day with
-#      the most MP entries + departures. This is data-driven (no n_days window).
+#      the most distinct people becoming present after an absence. Continuous
+#      membership split across RESE rows contributes no additional entries.
 #   2. Measure % focal group the day before and day after the cohort change day.
 #   3. The difference is the "election jump" — the change attributable to that
 #      election.
@@ -303,9 +304,9 @@ parl_starts <- sort(parl_starts)
 setDT(PARL)
 setDT(DAILY_COUNTS)
 
-# Step 1: For each parliament, find the day with the most MP turnover.
+# Step 1: For each parliament, find the day with the most distinct-person entries.
 # find_new_cohort_day() searches a window around each parliament (midpoint of
-# previous term to midpoint of next term) and returns the peak-turnover date.
+# previous term to midpoint of next term) and returns the peak-entry date.
 term_starts <- unique(PARL[, .(parliament_id, term_start = as.Date(leg_period_start_dateformat))])
 term_starts[, new_cohort_day := as.Date(sapply(parliament_id, function(pid) {
   find_new_cohort_day(pid, RESE, PARL)

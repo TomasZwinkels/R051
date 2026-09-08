@@ -412,15 +412,16 @@ mk_test_parl_cohort <- function(parliament_id, start, end) {
 }
 
 # Helper to build minimal RESE for find_new_cohort_day tests
-mk_test_rese_cohort <- function(starts, ends) {
+mk_test_rese_cohort <- function(starts, ends, pers_ids = sprintf("MP%d", seq_along(starts))) {
   data.frame(
+    pers_id = pers_ids,
     res_entry_start = starts,
     res_entry_end = ends,
     stringsAsFactors = FALSE
   )
 }
 
-test_that("find_new_cohort_day returns the day with most transitions", {
+test_that("find_new_cohort_day returns the day with most entries", {
   # Two consecutive parliaments so the midpoint search window works
   PARL <- rbind(
     mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
@@ -428,8 +429,8 @@ test_that("find_new_cohort_day returns the day with most transitions", {
   )
   # 5 entries on 2019-10-21, 3 exits on 2019-10-20, 1 entry on 2020-03-01
   RESE <- mk_test_rese_cohort(
-    starts = c(rep("21oct2019", 5), "01mar2020"),
-    ends   = c(rep("20oct2019", 3), rep("01jan2023", 3))
+    starts = c(rep("21oct2019", 5), "01mar2020", rep("01jan2015", 3)),
+    ends   = c(rep("01jan2023", 6), rep("20oct2019", 3))
   )
   result <- find_new_cohort_day("P1", RESE, PARL)
   expect_equal(result, as.Date("2019-10-21"))
@@ -506,11 +507,132 @@ test_that("find_new_cohort_day finds election day before session start", {
   )
   # Election turnover happens on Oct 21 (before session start Dec 5)
   RESE <- mk_test_rese_cohort(
-    starts = c(rep("21oct2019", 200), "15jan2020"),
-    ends   = c(rep("20oct2019", 180), rep("15aug2021", 21))
+    starts = c(rep("21oct2019", 200), "15jan2020", rep("03dec2015", 180)),
+    ends   = c(rep("15aug2021", 201), rep("20oct2019", 180))
   )
   result <- find_new_cohort_day("P1", RESE, PARL)
   expect_equal(result, as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day ignores mass party-change splits before an election", {
+  # Canadian 2000 pattern: 57 continuous members change party on 27 March,
+  # exceeding the 48 genuinely incoming people on election day, 27 November.
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "1997-09-22", "2000-10-22"),
+    mk_test_parl_cohort("P1", "2001-01-29", "2004-05-23")
+  )
+  continuing <- sprintf("continuing%d", 1:57)
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("02jun1997", 57), rep("27mar2000", 57), rep("27nov2000", 48)),
+    ends = c(rep("26mar2000", 57), rep("23may2004", 105)),
+    pers_ids = c(continuing, continuing, sprintf("new%d", 1:48))
+  )
+  expect_equal(find_new_cohort_day("P1", RESE, PARL), as.Date("2000-11-27"))
+})
+
+test_that("find_new_cohort_day handles unsorted nested overlaps", {
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  )
+  # The short 2018 rows end before the 2019 splits, but the 2015 rows still
+  # establish presence. Comparing only to the immediately preceding row fails.
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("01jan2019", 3), rep("01jan2018", 3),
+               rep("01jan2015", 3), rep("21oct2019", 2)),
+    ends = c(rep("01jan2023", 3), rep("01feb2018", 3), rep("01jan2023", 5)),
+    pers_ids = c(rep(c("A", "B", "C"), 3), "D", "E")
+  )
+  expect_equal(find_new_cohort_day("P1", RESE, PARL), as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day counts simultaneous same-person starts once without mutating inputs", {
+  PARL <- as.data.table(mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01"))
+  RESE <- as.data.table(mk_test_rese_cohort(
+    starts = c(rep("01jan2019", 5), rep("21oct2019", 2)),
+    ends = c("01jan2019", rep("01jan2023", 6)),
+    pers_ids = c(rep("A", 5), "B", "C")
+  ))
+  before_rese <- copy(RESE)
+  before_parl <- copy(PARL)
+  expect_equal(find_new_cohort_day("P1", RESE, PARL), as.Date("2019-10-21"))
+  expect_identical(RESE, before_rese)
+  expect_identical(PARL, before_parl)
+})
+
+test_that("find_new_cohort_day counts a return after one recorded day of absence", {
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  )
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("01jan2015", 2), rep("21oct2019", 2), "01mar2020"),
+    ends = c(rep("19oct2019", 2), rep("01jan2023", 3)),
+    pers_ids = c("A", "B", "A", "B", "C")
+  )
+  expect_equal(find_new_cohort_day("P1", RESE, PARL), as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day returns NA when the window contains only continuous splits", {
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  )
+  RESE <- mk_test_rese_cohort(
+    starts = c("01jan2015[[lcen]]", "21oct2019"),
+    ends = c("20oct2019", "01jan2023[[rcen]]"),
+    pers_ids = c("A", "A")
+  )
+  expect_true(is.na(find_new_cohort_day("P1", RESE, PARL)))
+})
+
+test_that("find_new_cohort_day ignores departures without entries", {
+  PARL <- rbind(
+    mk_test_parl_cohort("P0", "2015-01-01", "2018-12-31"),
+    mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  )
+  RESE <- mk_test_rese_cohort(
+    starts = c(rep("01jan2015", 5), "21oct2019"),
+    ends = c(rep("01mar2020", 5), "01jan2023")
+  )
+  expect_equal(find_new_cohort_day("P1", RESE, PARL), as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day chooses the earliest date in a tie", {
+  PARL <- mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  RESE <- mk_test_rese_cohort(
+    starts = c("01mar2020", "21oct2019"), ends = rep("01jan2023", 2)
+  )
+  expect_equal(find_new_cohort_day("P1", RESE, PARL), as.Date("2019-10-21"))
+})
+
+test_that("find_new_cohort_day returns NA for empty RESE", {
+  PARL <- mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  RESE <- mk_test_rese_cohort(character(), character())
+  expect_true(is.na(find_new_cohort_day("P1", RESE, PARL)))
+})
+
+test_that("find_new_cohort_day requires usable person IDs", {
+  PARL <- mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  RESE <- mk_test_rese_cohort("21oct2019", "01jan2023")
+  RESE$pers_id <- NULL
+  expect_error(find_new_cohort_day("P1", RESE, PARL), "non-missing pers_id")
+  for (id in c(NA_character_, "", " ")) {
+    RESE$pers_id <- id
+    expect_error(find_new_cohort_day("P1", RESE, PARL), "non-missing pers_id")
+  }
+})
+
+test_that("find_new_cohort_day warns and ignores unobservable or reversed intervals", {
+  PARL <- mk_test_parl_cohort("P1", "2019-01-01", "2023-01-01")
+  RESE <- mk_test_rese_cohort(
+    starts = c("21oct2019", "01jan2019", "01jan2019", NA, "not-a-date"),
+    ends = c("01jan2023", "31dec2018", NA, "01jan2023", "01jan2023")
+  )
+  expect_warning(result <- find_new_cohort_day("P1", RESE, PARL), "Ignoring RESE episodes")
+  expect_equal(result, as.Date("2019-10-21"))
+  expect_warning(result <- find_new_cohort_day("P1", RESE[-1, ], PARL), "Ignoring RESE episodes")
+  expect_true(is.na(result))
 })
 
 # ==================================================================
