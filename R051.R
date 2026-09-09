@@ -91,7 +91,7 @@ check_RESE_persid_in_POLI(RESE,POLI) # should return TRUE
 check_RESE_resentryid_unique(RESE) # should return TRUE
 
 # Focus on parliamentary membership
-RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09", "NT_LE_T3_NA_11")),]
+RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09", "NT_LE_T3_NA_11", "NT_LE-LH_T3_NA_11")),]
 nrow(RESE)
 
 check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
@@ -157,7 +157,7 @@ if (nrow(PARL) == 0) {
 }
 
 # Filter again for parliamentary episodes in selected country
-RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01","NT_LE_T3_NA_09", "NT_LE_T3_NA_11")),]
+RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01","NT_LE_T3_NA_09", "NT_LE_T3_NA_11", "NT_LE-LH_T3_NA_11")),]
 
 # Merge with POLI to get trait info
 RESEBU <- RESE %>%
