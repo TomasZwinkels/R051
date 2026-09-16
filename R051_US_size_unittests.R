@@ -51,28 +51,45 @@ test_that("a US size decrease changes the deviation baseline on the exact day", 
   expect_false(any(deviations$deviation_type == "structurally_too_low"))
 })
 
-# Reviewed production boundaries: the default registry must support the actual
-# exported sequences without any caller-supplied replacement registry.
-test_that("production US registry resolves Philippine independence", {
-  segs <- parse_parliament_size_series(
-    "US_NT-HR_1945", as.Date("1945-01-03"), as.Date("1947-01-02"), "439;438")
-  expect_equal(segs$size, c(439L, 438L))
-  expect_equal(segs$seg_end[1L], as.Date("1946-07-03"))
-  expect_equal(segs$seg_start[2L], as.Date("1946-07-04"))
+# Reviewed production boundaries: only voting-seat changes affect the baseline.
+test_that("non-voting House changes leave the voting-seat baseline constant", {
+  years <- c(1793, 1871, 1899, 1905, 1935, 1945, 1971)
+  sizes <- c(105L, 243L, 357L, 386L, 435L, 435L, 435L)
+  for (i in seq_along(years)) {
+    id <- paste0("US_NT-HR_", years[i])
+    start <- as.Date(paste0(years[i], "-01-03"))
+    end <- as.Date(paste0(years[i] + 2L, "-01-02"))
+    segs <- parse_parliament_size_series(id, start, end, as.character(sizes[i]))
+    expect_equal(segs$size, sizes[i])
+    expect_equal(nrow(segs), 1L)
+    expect_null(SIZE_CHANGE_DATES[[id]])
+  }
 })
 
-test_that("production US registry handles both lasting changes in the 60th Congress", {
+test_that("Oklahoma statehood adds five voting House seats on the exact day", {
   segs <- parse_parliament_size_series(
-    "US_NT-HR_1907", as.Date("1907-03-04"), as.Date("1909-03-03"), "392;396;398")
-  expect_equal(segs$size, c(392L, 396L, 398L))
-  expect_equal(segs$seg_start, as.Date(c("1907-03-04", "1907-11-16", "1908-02-04")))
-  expect_equal(segs$seg_end, as.Date(c("1907-11-15", "1908-02-03", "1909-03-03")))
+    "US_NT-HR_1907", as.Date("1907-03-04"), as.Date("1909-03-03"), "386;391")
+  expect_equal(segs$size, c(386L, 391L))
+  expect_equal(segs$seg_start, as.Date(c("1907-03-04", "1907-11-16")))
+  expect_equal(segs$seg_end, as.Date(c("1907-11-15", "1909-03-03")))
 })
 
-test_that("the 1795 US one-for-one status conversion keeps a constant total", {
+test_that("Tennessee statehood adds a voting seat even when total seats stay constant", {
   segs <- parse_parliament_size_series(
-    "US_NT-HR_1795", as.Date("1795-03-04"), as.Date("1797-03-03"), "106")
-  expect_equal(nrow(segs), 1L)
-  expect_equal(segs$size, 106L)
-  expect_null(SIZE_CHANGE_DATES[["US_NT-HR_1795"]])
+    "US_NT-HR_1795", as.Date("1795-03-04"), as.Date("1797-03-03"), "105;106")
+  expect_equal(segs$size, c(105L, 106L))
+  expect_equal(segs$seg_start, as.Date(c("1795-03-04", "1796-06-01")))
+  expect_equal(segs$seg_end, as.Date(c("1796-05-31", "1797-03-03")))
+})
+
+test_that("German non-voting changes are excluded but Saarland adds voting seats", {
+  segs <- parse_parliament_size_series(
+    "DE_NT-BT_1949", as.Date("1949-09-07"), as.Date("1953-10-05"), "402")
+  expect_equal(segs$size, 402L)
+  expect_null(SIZE_CHANGE_DATES[["DE_NT-BT_1949"]])
+  segs <- parse_parliament_size_series(
+    "DE_NT-BT_1953", as.Date("1953-10-06"), as.Date("1957-10-14"), "487;497")
+  expect_equal(segs$size, c(487L, 497L))
+  expect_equal(segs$seg_end[1], as.Date("1957-01-03"))
+  expect_equal(segs$seg_start[2], as.Date("1957-01-04"))
 })

@@ -4,8 +4,9 @@
 ###############################################################################
 # parliament_size may fluctuate within a term. Following the PCC convention for
 # committee `seats` (codebook), a fluctuating seat count is written as the
-# successive values separated by ';' in chronological order, e.g. "519;663" for
-# DE_NT-BT_1987 (519 seated until German reunification on 03oct1990, 663 after).
+# successive voting-seat values separated by ';' in chronological order, e.g.
+# DE_NT-BT_1987 "497;519;663": Berlin voting rights from 21jun1990, then
+# German reunification on 03oct1990.
 #
 # PARL stores only the term's start/end, NOT the intra-term changeover date(s),
 # so those must be supplied manually here. A parliament_size with N values needs
@@ -19,18 +20,11 @@
 ###############################################################################
 SIZE_CHANGE_DATES <- list(
   # US durable size changes: R052 USA/BioGuide/source_documentation/house_size_periods.csv.
-  "US_NT-HR_1793" = as.Date("1794-09-03"),
-  "US_NT-HR_1871" = as.Date("1871-04-21"),
-  "US_NT-HR_1899" = as.Date("1900-11-06"),
-  "US_NT-HR_1905" = as.Date("1906-08-14"),
-  "US_NT-HR_1907" = as.Date(c("1907-11-16", "1908-02-04")),
-  "US_NT-HR_1935" = as.Date("1936-02-14"),
-  "US_NT-HR_1945" = as.Date("1946-07-04"),
-  "US_NT-HR_1971" = as.Date("1971-03-23"),
+  "US_NT-HR_1795" = as.Date("1796-06-01"),  # Tennessee admission: 105 -> 106
+  "US_NT-HR_1907" = as.Date("1907-11-16"),  # Oklahoma admission: 386 -> 391
   "US_NT-SE_1959" = as.Date("1959-08-21"),  # Hawaii admission: 98 -> 100
-  "DE_NT-BT_1949" = as.Date("1952-02-01"),  # West Berlin delegation 8 -> 19
-  "DE_NT-BT_1953" = as.Date("1957-01-04"),  # Saarland accession: 509 -> 519
-  "DE_NT-BT_1987" = as.Date("1990-10-03")   # reunification: 519 -> 663
+  "DE_NT-BT_1953" = as.Date("1957-01-04"),  # Saarland representatives: 487 -> 497
+  "DE_NT-BT_1987" = as.Date(c("1990-06-21", "1990-10-03"))  # 497 -> 519 -> 663
 )
 
 ###############################################################################

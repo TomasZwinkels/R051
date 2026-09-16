@@ -48,7 +48,10 @@ test_file(paste0(pathtocheckerfunctions,"R047_RESE_unittests.R"))
 
 # Load custom R051 functions
 source("R051_functions.R")
+source("R051_input_functions.R")
 test_file("R051_unittests.R")
+test_file("R051_nonvoting_unittests.R", stop_on_failure = TRUE)
+test_file("R051_input_unittests.R", stop_on_failure = TRUE)
 
 # Import data
 if (USE_SYNTHETIC) {
@@ -61,7 +64,7 @@ if (USE_SYNTHETIC) {
   # Load US data directly from R052 BioGuide exports
   r052_dir <- "/home/tomas/projects/ProjectR052_DataFromExternalAPIs/USA/BioGuide/data_ready_for_IMPORT"
   POLI = read.csv(file.path(r052_dir, "POLI_import_ready.csv"), header = TRUE, skip = 1)
-  RESE = read.csv(file.path(r052_dir, "RESE_parlmem_import_ready.csv"), header = TRUE, skip = 1)
+  RESE = read_r052_rese_for_analysis(file.path(r052_dir, "RESE_parlmem_import_ready.csv"))
   PARL = read.csv(file.path(r052_dir, "PARL_import_ready.csv"), header = TRUE, skip = 1)
   MEME = data.frame()
 
@@ -90,8 +93,9 @@ RESE <- RESE[which(RESE$country_abb == country_code),]
 check_RESE_persid_in_POLI(RESE,POLI) # should return TRUE
 check_RESE_resentryid_unique(RESE) # should return TRUE
 
-# Focus on parliamentary membership
-RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09", "NT_LE_T3_NA_11", "NT_LE-LH_T3_NA_11")),]
+# Voting parliamentary membership only; BF 11 remains in source RESE but
+# is excluded from daily totals, trait shares and cohort calculations.
+RESE <- RESE[which(RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09")),]
 nrow(RESE)
 
 check_RESE_parlmemeppisodes_anyfulloverlap(preprocess_RESEdates(RESE)) # should return FALSE
@@ -157,7 +161,7 @@ if (nrow(PARL) == 0) {
 }
 
 # Filter again for parliamentary episodes in selected country
-RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01","NT_LE_T3_NA_09", "NT_LE_T3_NA_11", "NT_LE-LH_T3_NA_11")),]
+RESE <- RESE[which(RESE$country_abb == country_code & RESE$political_function %in% c("NT_LE-LH_T3_NA_01", "NT_LE_T3_NA_01", "NT_LE_T3_NA_09")),]
 
 # Merge with POLI to get trait info
 RESEBU <- RESE %>%
@@ -202,11 +206,18 @@ days_dt <- data.table(thisday = all_days)
 print(paste("Created", length(all_days), "days from", min(all_days), "to", max(all_days)))
 
 # Calculate daily counts with caching system
-# Check if data has changed by comparing versions (country-specific caching)
+# Version the analytical population and the data actually loaded.
 if (USE_SYNTHETIC) {
-  current_data_version <- trimws(readLines(file.path(synthetic_dir, "dataversion.txt"))[1])
+  current_data_version <- r051_daily_cache_version(
+    trimws(readLines(file.path(synthetic_dir, "dataversion.txt"))[1]))
+} else if (country_code == "US") {
+  source_files <- file.path(r052_dir, c("POLI_import_ready.csv",
+    "RESE_parlmem_import_ready.csv", "PARL_import_ready.csv"))
+  if (file.exists(icpsr_poli_file)) source_files <- c(source_files, icpsr_poli_file)
+  current_data_version <- r051_daily_cache_version("R052-BioGuide", source_files)
 } else {
-  current_data_version <- trimws(readLines("/home/tomas/projects/PCCdata/dataversion.txt")[1])
+  current_data_version <- r051_daily_cache_version(
+    trimws(readLines("/home/tomas/projects/PCCdata/dataversion.txt")[1]))
 }
 trait_key <- paste0(tolower(gsub(" ", "_", trait_name)), "_", tolower(gsub(" ", "_", focal_value)))
 country_dir <- file.path(country_code)
@@ -384,7 +395,7 @@ parl_years <- data.frame(
 
 # Create parliament size baseline for integrity checking.
 # parliament_size may be ';'-separated (fluctuating seats within a term, e.g.
-# DE_NT-BT_1987 "519;663" across reunification). Expand each term into one row
+# DE_NT-BT_1987 "497;519;663" across voting rights and reunification). Expand each term into one row
 # per sub-period via parse_parliament_size_series(); it STOPS with an actionable
 # error if a fluctuating term is missing its changeover date in SIZE_CHANGE_DATES.
 setDT(PARL)

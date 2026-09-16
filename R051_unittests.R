@@ -994,13 +994,13 @@ test_that("is_valid_parliament_size accepts single and ';'-separated positive in
   expect_false(any(is_valid_parliament_size(c("519;abc", "519;0", "0", "", NA))))
 })
 
-test_that("parse_parliament_size_series splits at the registered changeover date", {
+test_that("German voting seats change with Berlin voting rights and reunification", {
   res <- parse_parliament_size_series("DE_NT-BT_1987",
-           as.Date("1987-02-18"), as.Date("1990-12-19"), "519;663")
-  expect_equal(nrow(res), 2)
-  expect_equal(res$size, c(519L, 663L))
-  expect_equal(res$seg_end[1],   as.Date("1990-10-02"))  # midnight rule
-  expect_equal(res$seg_start[2], as.Date("1990-10-03"))
+           as.Date("1987-02-18"), as.Date("1990-12-19"), "497;519;663")
+  expect_equal(nrow(res), 3)
+  expect_equal(res$size, c(497L, 519L, 663L))
+  expect_equal(res$seg_end[1:2], as.Date(c("1990-06-20", "1990-10-02")))
+  expect_equal(res$seg_start[2:3], as.Date(c("1990-06-21", "1990-10-03")))
 })
 
 test_that("parse_parliament_size_series stops when a changeover date is missing", {
@@ -1017,7 +1017,7 @@ test_that("expanded parl_baseline gives the correct baseline on each side of the
     parliament_id = "DE_NT-BT_1987",
     leg_period_start_dateformat = as.Date("1987-02-18"),
     leg_period_end_dateformat   = as.Date("1990-12-19"),
-    parliament_size = "519;663"
+    parliament_size = "497;519;663"
   )
   parl_baseline <- rbindlist(lapply(seq_len(nrow(PARL)), function(i) {
     segs <- parse_parliament_size_series(
@@ -1027,13 +1027,13 @@ test_that("expanded parl_baseline gives the correct baseline on each side of the
                end_date = segs$seg_end, baseline_size = as.numeric(segs$size))
   }))[order(start_date)]
 
-  expect_equal(nrow(parl_baseline), 2)
-  expect_equal(parl_baseline$baseline_size, c(519, 663))
+  expect_equal(nrow(parl_baseline), 3)
+  expect_equal(parl_baseline$baseline_size, c(497, 519, 663))
 
-  # 519 seated throughout -> pre-reunification normal, post shows -144 (too low)
+  # Voting membership matches 497 then 519, but fails to rise at reunification.
   daily <- data.table(
     thisday = seq(as.Date("1987-02-18"), as.Date("1990-12-19"), by = "day"))
-  daily[, pol_all := 519]
+  daily[, pol_all := ifelse(thisday < as.Date("1990-06-21"), 497, 519)]
   res <- detect_parliament_deviations(daily, parl_baseline,
            seat_threshold = 5, duration_threshold_days = 30)
   # exactly the post-change stretch is flagged structurally_too_low
