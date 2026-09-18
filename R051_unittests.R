@@ -1003,6 +1003,14 @@ test_that("German voting seats change with Berlin voting rights and reunificatio
   expect_equal(res$seg_start[2:3], as.Date(c("1990-06-21", "1990-10-03")))
 })
 
+test_that("NL 1945 baseline is 76 through 19nov and 100 from 20nov", {
+  res <- parse_parliament_size_series("NL_NT-TK_1945",
+           as.Date("1945-09-25"), as.Date("1946-06-03"), "76;100")
+  expect_equal(res$size, c(76L, 100L))
+  expect_equal(res$seg_start, as.Date(c("1945-09-25", "1945-11-20")))
+  expect_equal(res$seg_end, as.Date(c("1945-11-19", "1946-06-03")))
+})
+
 test_that("parse_parliament_size_series stops when a changeover date is missing", {
   expect_error(
     parse_parliament_size_series("DE_NT-BT_9999",
